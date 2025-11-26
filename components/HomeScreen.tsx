@@ -18,10 +18,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, o
 
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('pt-BR', {
-        day: 'numeric',
-        month: 'short',
+        day: '2-digit',
+        month: '2-digit',
         year: 'numeric'
-    }).replace('.', '');
+    });
   };
 
   return (

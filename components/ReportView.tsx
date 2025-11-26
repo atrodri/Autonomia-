@@ -54,12 +54,12 @@ const ReportView: React.FC<ReportViewProps> = ({ cycle, onGoBack }) => {
   
   const formatDate = (date: Date, isUtc: boolean = false) => {
     const options: Intl.DateTimeFormatOptions = {
-        day: 'numeric', month: 'short', year: 'numeric'
+        day: '2-digit', month: '2-digit', year: 'numeric'
     };
     if (isUtc) {
         options.timeZone = 'UTC';
     }
-    return date.toLocaleDateString('pt-BR', options).replace('.', '');
+    return date.toLocaleDateString('pt-BR', options);
   };
 
   const numberFormatter = (value: number, options: Intl.NumberFormatOptions = {}) => 

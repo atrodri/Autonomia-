@@ -4,7 +4,7 @@ import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Modal } from './ui/Modal';
-import { ChevronLeftIcon } from './icons/Icons';
+import { ChevronLeftIcon, MyLocationIcon } from './icons/Icons';
 
 declare global {
   interface Window {
@@ -26,6 +26,7 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
   const [route, setRoute] = useState<any>(null);
   const [tripSummary, setTripSummary] = useState<{ distance: string; duration: string }>({ distance: '', duration: '' });
   const [currentInstruction, setCurrentInstruction] = useState('');
+  const [isFollowingUser, setIsFollowingUser] = useState(true);
   
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [finalTraveledDistance, setFinalTraveledDistance] = useState(0); // in meters
@@ -46,83 +47,107 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
   // Initialize Map and Services
   useEffect(() => {
     if (window.google && mapRef.current && !mapInstance.current) {
-      const initialCoords = { lat: -23.55052, lng: -46.633308 }; // Default to São Paulo
-      mapInstance.current = new window.google.maps.Map(mapRef.current, {
-        center: initialCoords,
-        zoom: 12,
-        disableDefaultUI: true,
-        backgroundColor: '#0A0A0A',
-        styles: [
-            { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
-            { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-            {
-                featureType: "administrative.locality",
-                elementType: "labels.text.fill",
-                stylers: [{ color: "#d59563" }],
-            },
-            {
-                featureType: "poi",
-                elementType: "labels.text.fill",
-                stylers: [{ color: "#d59563" }],
-            },
-            {
-                featureType: "poi.park",
-                elementType: "geometry",
-                stylers: [{ color: "#263c3f" }],
-            },
-            {
-                featureType: "road",
-                elementType: "geometry",
-                stylers: [{ color: "#38414e" }],
-            },
-            {
-                featureType: "road",
-                elementType: "geometry.stroke",
-                stylers: [{ color: "#212a37" }],
-            },
-            {
-                featureType: "road",
-                elementType: "labels.text.fill",
-                stylers: [{ color: "#9ca5b3" }],
-            },
-            {
-                featureType: "road.highway",
-                elementType: "geometry",
-                stylers: [{ color: "#FF6B00" }],
-            },
-            {
-                featureType: "road.highway",
-                elementType: "geometry.stroke",
-                stylers: [{ color: "#1f2835" }],
-            },
-            {
-                featureType: "transit",
-                elementType: "geometry",
-                stylers: [{ color: "#2f3948" }],
-            },
-            {
-                featureType: "water",
-                elementType: "geometry",
-                stylers: [{ color: "#17263c" }],
-            },
-            {
-                featureType: "water",
-                elementType: "labels.text.fill",
-                stylers: [{ color: "#515c6d" }],
-            },
-        ],
-      });
-      directionsService.current = new window.google.maps.DirectionsService();
-      directionsRenderer.current = new window.google.maps.DirectionsRenderer({
-        polylineOptions: {
-            strokeColor: '#FF6B00',
-            strokeWeight: 6,
-            strokeOpacity: 0.8,
-        },
-        suppressMarkers: true,
-      });
-      directionsRenderer.current.setMap(mapInstance.current);
+        const defaultCenter = { lat: -23.55052, lng: -46.633308 }; // São Paulo
+
+        const initializeMap = (center: { lat: number; lng: number }) => {
+            mapInstance.current = new window.google.maps.Map(mapRef.current, {
+                center: center,
+                zoom: 12,
+                disableDefaultUI: true,
+                backgroundColor: '#0A0A0A',
+                styles: [
+                    { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
+                    { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
+                    { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
+                    {
+                        featureType: "administrative.locality",
+                        elementType: "labels.text.fill",
+                        stylers: [{ color: "#d59563" }],
+                    },
+                    {
+                        featureType: "poi",
+                        elementType: "labels.text.fill",
+                        stylers: [{ color: "#d59563" }],
+                    },
+                    {
+                        featureType: "poi.park",
+                        elementType: "geometry",
+                        stylers: [{ color: "#263c3f" }],
+                    },
+                    {
+                        featureType: "road",
+                        elementType: "geometry",
+                        stylers: [{ color: "#38414e" }],
+                    },
+                    {
+                        featureType: "road",
+                        elementType: "geometry.stroke",
+                        stylers: [{ color: "#212a37" }],
+                    },
+                    {
+                        featureType: "road",
+                        elementType: "labels.text.fill",
+                        stylers: [{ color: "#9ca5b3" }],
+                    },
+                    {
+                        featureType: "road.highway",
+                        elementType: "geometry",
+                        stylers: [{ color: "#FF6B00" }],
+                    },
+                    {
+                        featureType: "road.highway",
+                        elementType: "geometry.stroke",
+                        stylers: [{ color: "#1f2835" }],
+                    },
+                    {
+                        featureType: "transit",
+                        elementType: "geometry",
+                        stylers: [{ color: "#2f3948" }],
+                    },
+                    {
+                        featureType: "water",
+                        elementType: "geometry",
+                        stylers: [{ color: "#17263c" }],
+                    },
+                    {
+                        featureType: "water",
+                        elementType: "labels.text.fill",
+                        stylers: [{ color: "#515c6d" }],
+                    },
+                ],
+            });
+
+            mapInstance.current.addListener('dragstart', () => {
+                setIsFollowingUser(false);
+            });
+
+            directionsService.current = new window.google.maps.DirectionsService();
+            directionsRenderer.current = new window.google.maps.DirectionsRenderer({
+                polylineOptions: {
+                    strokeColor: '#FF6B00',
+                    strokeWeight: 6,
+                    strokeOpacity: 0.8,
+                },
+                suppressMarkers: true,
+            });
+            directionsRenderer.current.setMap(mapInstance.current);
+        };
+        
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    initializeMap({
+                        lat: position.coords.latitude,
+                        lng: position.coords.longitude,
+                    });
+                },
+                () => {
+                    initializeMap(defaultCenter); // Fallback on error/denial
+                }
+            );
+        } else {
+            initializeMap(defaultCenter); // Fallback if geolocation is not supported
+        }
     }
   }, []);
 
@@ -182,13 +207,24 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
 
   const startNavigation = useCallback(() => {
     if (!route) return;
-
+    
+    setIsFollowingUser(true);
     setNavigationState('navigating');
     currentStepIndex.current = 0;
     traveledDistanceRef.current = 0;
     lastPositionRef.current = null;
     const firstStep = route.routes[0].legs[0].steps[0];
     setCurrentInstruction(firstStep.instructions.replace(/<[^>]*>/g, '')); // Remove HTML tags
+  }, [route]);
+
+  useEffect(() => {
+    if (navigationState !== 'navigating') {
+      if (positionWatcher.current !== null) {
+        navigator.geolocation.clearWatch(positionWatcher.current);
+        positionWatcher.current = null;
+      }
+      return;
+    }
 
     positionWatcher.current = navigator.geolocation.watchPosition(
       (position) => {
@@ -227,8 +263,10 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
           }
         }
 
-        mapInstance.current.setCenter(currentPos);
-        mapInstance.current.setZoom(18);
+        if (isFollowingUser) {
+          mapInstance.current.setCenter(currentPos);
+          mapInstance.current.setZoom(18);
+        }
 
         // Check if user is close to the next step
         const currentLeg = route.routes[0].legs[0];
@@ -253,7 +291,15 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
       () => { alert('Erro ao rastrear localização.'); },
       { enableHighAccuracy: true }
     );
-  }, [route]);
+    
+    return () => {
+        if (positionWatcher.current !== null) {
+            navigator.geolocation.clearWatch(positionWatcher.current);
+            positionWatcher.current = null;
+        }
+    }
+  }, [navigationState, route, isFollowingUser]);
+
 
   const finishTrip = useCallback(() => {
     if (positionWatcher.current !== null) {
@@ -263,6 +309,14 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
     setFinalTraveledDistance(traveledDistanceRef.current);
     setNavigationState('finished');
     setIsConfirmModalOpen(true);
+  }, []);
+
+  const handleRecenterMap = useCallback(() => {
+    if (lastPositionRef.current && mapInstance.current) {
+        setIsFollowingUser(true);
+        mapInstance.current.panTo(lastPositionRef.current);
+        mapInstance.current.setZoom(18);
+    }
   }, []);
 
   const handleConfirmCheckpoint = () => {
@@ -350,14 +404,24 @@ const TripView: React.FC<TripViewProps> = ({ cycle, onEndTrip, onAddCheckpoint }
                     </div>
 
                     {isNavigating && (
-                        <div className="absolute bottom-4 left-4 right-4 z-10 space-y-3">
-                            <div className="bg-[#141414] bg-opacity-90 p-4 rounded-lg shadow-lg text-center border border-[#444]">
-                                <p className="text-lg font-semibold text-white min-h-[28px]" dangerouslySetInnerHTML={{ __html: currentInstruction || 'Iniciando navegação...' }}></p>
-                            </div>
-                            <Button onClick={finishTrip} variant="danger" className="w-full">
-                                Finalizar Trajeto
-                            </Button>
-                        </div>
+                        <>
+                           <button 
+                             onClick={handleRecenterMap}
+                             className="absolute top-4 right-4 z-10 bg-[#141414] bg-opacity-90 p-2 rounded-full shadow-lg border border-[#444] text-white hover:bg-[#2a2a2a]"
+                             title="Centralizar na sua posição"
+                           >
+                             <MyLocationIcon className="w-6 h-6" />
+                           </button>
+
+                           <div className="absolute bottom-4 left-4 right-4 z-10 space-y-3">
+                               <div className="bg-[#141414] bg-opacity-90 p-4 rounded-lg shadow-lg text-center border border-[#444]">
+                                   <p className="text-lg font-semibold text-white min-h-[28px]" dangerouslySetInnerHTML={{ __html: currentInstruction || 'Iniciando navegação...' }}></p>
+                               </div>
+                               <Button onClick={finishTrip} variant="danger" className="w-full">
+                                   Finalizar Trajeto
+                               </Button>
+                           </div>
+                        </>
                     )}
                 </div>
                 

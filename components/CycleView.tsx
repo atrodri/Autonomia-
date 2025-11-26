@@ -92,12 +92,12 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
   
   const formatHistoryDate = (dateString: string) => {
     return new Date(dateString).toLocaleString('pt-BR', {
-        day: 'numeric',
-        month: 'short',
+        day: '2-digit',
+        month: '2-digit',
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
-    }).replace('.', '');
+    });
   };
 
   return (
@@ -197,20 +197,20 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
   const isFinished = cycle.status === 'finished';
   const isReadyForAutonomy = cycle.fuelAmount > 0 && cycle.consumption > 0;
 
-  const { maxReachableKm, remainingKm } = useMemo(() => {
+  const { maxReachableKm, remainingKm, remainingFuel } = useMemo(() => {
     if (!isReadyForAutonomy) {
-      return { maxReachableKm: cycle.currentMileage, remainingKm: 0 };
+      return { maxReachableKm: cycle.currentMileage, remainingKm: 0, remainingFuel: 0 };
     }
     const drivenSinceStart = cycle.currentMileage - cycle.initialMileage;
     let fuelConsumed = 0;
     if (cycle.consumption > 0) {
         fuelConsumed = drivenSinceStart / cycle.consumption;
     }
-    const remainingFuel = Math.max(0, cycle.fuelAmount - fuelConsumed);
-    const remainingKm = remainingFuel * cycle.consumption;
-    const maxReachableKm = cycle.currentMileage + remainingKm;
+    const currentRemainingFuel = Math.max(0, cycle.fuelAmount - fuelConsumed);
+    const currentRemainingKm = currentRemainingFuel * cycle.consumption;
+    const maxReachableKm = cycle.currentMileage + currentRemainingKm;
 
-    return { maxReachableKm, remainingKm };
+    return { maxReachableKm, remainingKm: currentRemainingKm, remainingFuel: currentRemainingFuel };
   }, [cycle, isReadyForAutonomy]);
 
   const numberFormatter = useMemo(() => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }), []);
@@ -275,13 +275,13 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
     setConsumptionModalOpen(true);
   }
 
-  const formatDateAbbreviated = (dateString: string) => {
+  const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('pt-BR', {
-      day: 'numeric',
-      month: 'short',
+      day: '2-digit',
+      month: '2-digit',
       year: 'numeric',
       timeZone: 'UTC'
-    }).replace('.', '');
+    });
   };
 
   return (
@@ -296,7 +296,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
         <div className="text-center">
           <h2 className="text-2xl font-bold text-white">{cycle.name}</h2>
           <p className="text-sm text-[#CFCFCF] mb-6">
-            Iniciado em: {formatDateAbbreviated(cycle.startDate)}
+            Iniciado em: {formatDate(cycle.startDate)}
           </p>
 
           {isReadyForAutonomy ? (
@@ -309,7 +309,7 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-center mb-8">
+              <div className="grid grid-cols-2 sm:grid-cols-2 gap-6 text-center mb-8">
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">KM Atual</p>
                   <p className="text-xl font-semibold text-white">{numberFormatter.format(cycle.currentMileage)} km</p>
@@ -317,6 +317,10 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Autonomia Máx.</p>
                   <p className="text-xl font-semibold text-white">{numberFormatter.format(maxReachableKm)} km</p>
+                </div>
+                <div>
+                  <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Saldo Combustível</p>
+                  <p className="text-xl font-semibold text-white">{numberFormatter.format(remainingFuel)} L</p>
                 </div>
                 <div>
                   <p className="text-sm text-[#CFCFCF] uppercase tracking-wider">Consumo</p>
