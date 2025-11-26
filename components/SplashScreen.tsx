@@ -39,13 +39,13 @@ const SplashScreen: React.FC = () => {
                     <span className="tracking-tighter">a</span>
                 </div>
 
-                {/* 'utonomi' text that appears */}
+                {/* 'utonomia' text that appears */}
                 <div 
                     className="overflow-hidden transition-all duration-700 ease-in-out"
                     style={{ maxWidth: phase === 'end' ? '30rem' : '0' }}
                 >
                      <span className={`tracking-tighter transition-opacity duration-300 delay-500 whitespace-nowrap ${phase === 'end' ? 'opacity-100' : 'opacity-0'}`}>
-                        utonomi
+                        utonomia
                      </span>
                 </div>
 
