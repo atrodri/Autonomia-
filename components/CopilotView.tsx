@@ -150,13 +150,11 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
         // Session document deleted = route finished
         setStatus('ended');
         
-        // Remove everything from map immediately
+        // Remove marker immediately as tracking stopped
         if (driverMarker.current) {
           driverMarker.current.setMap(null);
         }
-        if (directionsRenderer.current) {
-            directionsRenderer.current.setMap(null);
-        }
+        // NOTE: We keep directionsRenderer active so the route line remains visible on the map
       }
     }, (err) => {
       console.error("Error listening to live session:", err);
@@ -165,45 +163,42 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
     });
 
     return () => unsubscribe();
-  }, [sessionId]); // removed routeData dependency to avoid loops
-
-  if (status === 'ended') {
-      return (
-        <div className="fixed inset-0 bg-[#0A0A0A] z-50 flex flex-col items-center justify-center p-6 text-center">
-            <h1 className="text-4xl font-bold text-white tracking-tight mb-2">
-            autonomia<span className="text-[#FF6B00]">+</span>
-            </h1>
-            <div className="bg-[#141414] border border-red-900/50 p-8 rounded-xl shadow-2xl max-w-sm w-full">
-                <p className="text-2xl font-bold text-[#FF6B00] mb-2 uppercase tracking-widest">Rota Finalizada</p>
-                <p className="text-[#888]">O motorista encerrou a navegação.</p>
-                {error && <p className="mt-4 text-xs text-red-500">{error}</p>}
-            </div>
-        </div>
-      );
-  }
+  }, [sessionId]); 
 
   return (
     <div className="fixed inset-0 bg-[#0A0A0A] z-50">
       <div ref={mapRef} className="absolute inset-0 z-0" />
 
-      {status === 'active' && (
+      {(status === 'active' || status === 'ended') && (
         <>
             <div className="absolute top-0 left-0 right-0 p-4 z-20">
                 <div className="bg-[#141414]/80 p-3 rounded-lg border border-[#444] max-w-sm mx-auto text-center shadow-lg backdrop-blur-md">
                     <h1 className="text-xl font-bold text-white tracking-tight">
                         autonomia<span className="text-[#FF6B00]">+</span>
                     </h1>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-[#888]">Modo Co-piloto</p>
-                </div>
-            </div>
-
-            <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
-                <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto backdrop-blur-md">
-                    <p className="text-lg font-semibold text-white min-h-[28px]">
-                        {currentInstruction}
+                    <p className={`text-xs font-semibold uppercase tracking-wider ${status === 'ended' ? 'text-red-500' : 'text-[#888]'}`}>
+                        {status === 'ended' ? 'ROTA FINALIZADA' : 'Modo Co-piloto'}
                     </p>
                 </div>
             </div>
+
+            {status === 'active' && (
+                <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
+                    <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto backdrop-blur-md">
+                        <p className="text-lg font-semibold text-white min-h-[28px]">
+                            {currentInstruction}
+                        </p>
+                    </div>
+                </div>
+            )}
+            
+            {status === 'ended' && error && (
+                 <div className="absolute bottom-0 left-0 right-0 p-4 z-10 flex justify-center">
+                    <div className="bg-red-900/90 p-3 rounded-lg border border-red-700 text-white text-sm">
+                        {error}
+                    </div>
+                </div>
+            )}
         </>
       )}
       
