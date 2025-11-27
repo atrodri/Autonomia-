@@ -67,8 +67,7 @@ const App: React.FC = () => {
   const [firestoreError, setFirestoreError] = useState<string | null>(null);
 
   // Logic for Copilot Mode
-  const [isCopilotMode, setIsCopilotMode] = useState(false);
-  const [copilotRoute, setCopilotRoute] = useState<{ origin: string, destination: string } | null>(null);
+  const [copilotSessionId, setCopilotSessionId] = useState<string | null>(null);
 
   const [cycles, setCycles] = useState<Cycle[]>([]);
   // Estado para armazenar o histórico completo do ciclo ATIVO (vindo das subcoleções)
@@ -78,15 +77,11 @@ const App: React.FC = () => {
 
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('copilot') === 'true') {
-          const origin = params.get('origin');
-          const destination = params.get('destination');
-          if (origin && destination) {
-              setIsCopilotMode(true);
-              setCopilotRoute({ origin, destination });
-              setAppLoadState('loaded'); 
-              return; 
-          }
+      const sessionId = params.get('sessionId');
+      if (sessionId) {
+          setCopilotSessionId(sessionId);
+          setAppLoadState('loaded'); 
+          return; 
       }
 
     const timer = setTimeout(() => {
@@ -593,8 +588,8 @@ const App: React.FC = () => {
     );
   };
 
-  if (isCopilotMode && copilotRoute) {
-      return <CopilotView origin={copilotRoute.origin} destination={copilotRoute.destination} />;
+  if (copilotSessionId) {
+      return <CopilotView sessionId={copilotSessionId} />;
   }
   
   return (

@@ -1,5 +1,7 @@
+
 import React, { useEffect, useRef, useState } from 'react';
-import { Header } from './Header';
+import { onSnapshot, doc } from 'firebase/firestore';
+import { db } from '../firebase';
 
 declare global {
   interface Window {
@@ -8,97 +10,124 @@ declare global {
 }
 
 interface CopilotViewProps {
-  origin: string;
-  destination: string;
+  sessionId: string;
 }
 
-const CopilotView: React.FC<CopilotViewProps> = ({ origin, destination }) => {
+type CopilotStatus = 'connecting' | 'active' | 'ended';
+
+const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
   const mapRef = useRef<HTMLDivElement>(null);
-  const [routeInstructions, setRouteInstructions] = useState<string[]>([]);
-  const [tripSummary, setTripSummary] = useState<{ distance: string; duration: string }>({ distance: '', duration: '' });
+  const mapInstance = useRef<any>(null);
+  const driverMarker = useRef<any>(null);
+  const [status, setStatus] = useState<CopilotStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (window.google && mapRef.current) {
-      const map = new window.google.maps.Map(mapRef.current, {
-        zoom: 12,
-        disableDefaultUI: true,
-        styles: [
+    const initMap = (center: { lat: number; lng: number }) => {
+      if (mapRef.current && !mapInstance.current) {
+        mapInstance.current = new window.google.maps.Map(mapRef.current, {
+          center,
+          zoom: 18,
+          disableDefaultUI: true,
+          styles: [
             { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
             { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
             { elementType: "labels.text.fill", stylers: [{ color: "#746855" }] },
-            {
-                featureType: "administrative.locality",
-                elementType: "labels.text.fill",
-                stylers: [{ color: "#d59563" }],
-            },
-            { featureType: "poi", elementType: "labels.text.fill", stylers: [{ color: "#d59563" }] },
-            { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#263c3f" }] },
             { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
             { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
             { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
             { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#FF6B00" }] },
-            { featureType: "road.highway", elementType: "geometry.stroke", stylers: [{ color: "#1f2835" }] },
-            { featureType: "transit", elementType: "geometry", stylers: [{ color: "#2f3948" }] },
             { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
-            { featureType: "water", elementType: "labels.text.fill", stylers: [{ color: "#515c6d" }] },
-        ],
-      });
+          ],
+        });
+      }
+    };
 
-      const directionsService = new window.google.maps.DirectionsService();
-      const directionsRenderer = new window.google.maps.DirectionsRenderer({
-        polylineOptions: { strokeColor: '#FFEB3B', strokeWeight: 8, strokeOpacity: 0.9 },
-      });
-      directionsRenderer.setMap(map);
+    const handleMapReady = () => {
+        initMap({ lat: -23.55052, lng: -46.633308 }); // Default center
+    };
 
-      const [lat, lng] = origin.split(',').map(Number);
-      const originLatLng = { lat, lng };
-
-      directionsService.route(
-        { origin: originLatLng, destination, travelMode: 'DRIVING' },
-        (result: any, status: string) => {
-          if (status === 'OK' && result?.routes?.[0]?.legs?.[0]) {
-            directionsRenderer.setDirections(result);
-            const leg = result.routes[0].legs[0];
-            setTripSummary({ distance: leg.distance.text, duration: leg.duration.text });
-            const instructions = leg.steps.map((step: any) => step.instructions.replace(/<[^>]*>/g, ''));
-            setRouteInstructions(instructions);
-          } else {
-            setError('Não foi possível carregar a rota do co-piloto.');
-          }
-        }
-      );
+    if (window.google?.maps) {
+        handleMapReady();
+    } else {
+        window.addEventListener('google-maps-ready', handleMapReady, { once: true });
     }
-  }, [origin, destination]);
+    return () => window.removeEventListener('google-maps-ready', handleMapReady);
+  }, []);
+
+  useEffect(() => {
+    if (!sessionId || !mapInstance.current) return;
+
+    const sessionDocRef = doc(db, 'live_sessions', sessionId);
+    const unsubscribe = onSnapshot(sessionDocRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setStatus('active');
+        const data = docSnap.data();
+        const position = data.position;
+        const heading = data.heading;
+        
+        if (position) {
+          if (!driverMarker.current) {
+            driverMarker.current = new window.google.maps.Marker({
+              position,
+              map: mapInstance.current,
+              icon: {
+                path: 'M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z',
+                fillColor: '#FF6B00',
+                fillOpacity: 1,
+                strokeColor: '#FFFFFF',
+                strokeWeight: 2,
+                scale: 1.5,
+                anchor: new window.google.maps.Point(12, 12),
+                rotation: heading,
+              },
+            });
+          } else {
+            driverMarker.current.setPosition(position);
+            const icon = driverMarker.current.getIcon();
+            icon.rotation = heading;
+            driverMarker.current.setIcon(icon);
+          }
+          mapInstance.current.panTo(position);
+          mapInstance.current.setZoom(18);
+        }
+      } else {
+        setStatus('ended');
+        if (driverMarker.current) {
+          driverMarker.current.setMap(null);
+        }
+      }
+    }, (err) => {
+      console.error("Error listening to live session:", err);
+      setError("Não foi possível conectar à sessão do motorista.");
+      setStatus('ended');
+    });
+
+    return () => unsubscribe();
+  }, [sessionId, mapInstance.current]);
 
   return (
-    <div className="w-full h-screen flex flex-col">
-      <Header />
-      <main className="flex-grow flex flex-col p-4 md:p-6 container mx-auto">
-        <div className="text-center mb-4">
-          <h2 className="text-2xl font-bold text-white">Visualização do Co-piloto</h2>
-          <p className="text-sm text-[#CFCFCF]">Acompanhe a rota para auxiliar o motorista.</p>
-        </div>
-        
-        {error && <p className="text-center text-red-500">{error}</p>}
-        
-        <div className="bg-[#141414] rounded-lg shadow-lg p-4 flex-grow flex flex-col gap-4">
-          <div ref={mapRef} className="w-full h-64 md:h-80 rounded-md bg-[#0A0A0A] border border-[#444]" />
-          <div className="flex-grow overflow-y-auto pr-2">
-            <h3 className="text-lg font-semibold text-[#FF6B00] mb-2">Instruções da Rota</h3>
-            {tripSummary.distance && (
-              <p className="text-sm text-white mb-3">
-                Total: <span className="font-bold">{tripSummary.distance}</span> ({tripSummary.duration})
-              </p>
-            )}
-            <ul className="space-y-2 text-sm">
-              {routeInstructions.map((instr, index) => (
-                <li key={index} className="border-b border-[#2a2a2a] pb-2 last:border-b-0">{instr}</li>
-              ))}
-            </ul>
+    <div className="fixed inset-0 bg-[#0A0A0A] z-50">
+      <div ref={mapRef} className="absolute inset-0 z-0" />
+      <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+        {status === 'connecting' && (
+          <div className="bg-[#141414]/90 p-4 rounded-lg text-center">
+            <h2 className="text-lg font-bold text-white">Conectando ao motorista...</h2>
           </div>
+        )}
+        {status === 'ended' && (
+          <div className="bg-[#141414]/90 p-6 rounded-lg text-center shadow-lg border border-[#444]">
+            <h2 className="text-xl font-bold text-white">Navegação Finalizada</h2>
+            <p className="text-[#CFCFCF] mt-2">O motorista encerrou esta rota. Você pode fechar esta janela.</p>
+            {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
+          </div>
+        )}
+      </div>
+       <div className="absolute top-0 left-0 right-0 p-4 z-20">
+          <h1 className="text-lg font-bold text-white tracking-tight text-center bg-[#141414]/80 p-2 rounded-lg border border-[#444] max-w-xs mx-auto">
+            autonomia<span className="text-[#FF6B00]">+</span> Co-piloto
+          </h1>
         </div>
-      </main>
     </div>
   );
 };

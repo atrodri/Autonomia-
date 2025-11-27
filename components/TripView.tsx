@@ -6,6 +6,9 @@ import { Input } from './ui/Input';
 import { Modal } from './ui/Modal';
 import { ChevronLeftIcon, MyLocationIcon, CopilotIcon } from './icons/Icons';
 import { QRCode } from './ui/QRCode';
+import { db, auth } from '../firebase';
+import { doc, addDoc, collection, updateDoc, deleteDoc } from 'firebase/firestore';
+
 
 declare global {
   interface Window {
@@ -35,6 +38,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const [isFollowingUser, setIsFollowingUser] = useState(true);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isCopilotModalOpen, setIsCopilotModalOpen] = useState(false);
+  const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [routeStatus, setRouteStatus] = useState<'idle' | 'calculating' | 'error'>('idle');
@@ -60,6 +64,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       setRoute(null);
       setPhase('planning');
       setPlanningSubPhase('input');
+      setLiveSessionId(null);
     }
   }, [tripToView]);
 
@@ -154,7 +159,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         }
 
       } else if (tripToView.origin && tripToView.destination) {
-        // Fallback for old routes
+        // Fallback for old routes without traveledPath
         directionsService.current.route(
           { origin: tripToView.origin, destination: tripToView.destination, travelMode: 'DRIVING' },
           (result: any, status: string) => {
@@ -213,10 +218,31 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
     );
   }, [destination]);
 
-  const startNavigation = useCallback(() => {
-    if (!route) return;
-    setPhase('navigating');
+  const startNavigation = useCallback(async () => {
+    if (!route || !auth.currentUser) return;
+    try {
+        const sessionRef = await addDoc(collection(db, 'live_sessions'), {
+            driverId: auth.currentUser.uid,
+            createdAt: new Date().toISOString(),
+            // Initial position can be set here if needed
+        });
+        setLiveSessionId(sessionRef.id);
+        setPhase('navigating');
+    } catch (e) {
+        console.error("Failed to create live session:", e);
+        setError("Não foi possível iniciar a sessão de co-piloto.");
+    }
   }, [route]);
+
+  // Cleanup live session on unmount or phase change
+  useEffect(() => {
+    return () => {
+      if (liveSessionId) {
+        deleteDoc(doc(db, 'live_sessions', liveSessionId));
+      }
+    };
+  }, [liveSessionId]);
+
 
   useEffect(() => {
     if (phase !== 'navigating') {
@@ -231,7 +257,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
     
     setCurrentInstruction(route.routes[0].legs[0].steps[0].instructions.replace(/<[^>]*>/g, ''));
 
-    positionWatcher.current = navigator.geolocation.watchPosition((position) => {
+    positionWatcher.current = navigator.geolocation.watchPosition(async (position) => {
         const newPosition = { lat: position.coords.latitude, lng: position.coords.longitude };
         traveledPathRef.current.push(newPosition);
 
@@ -242,6 +268,13 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
                 new window.google.maps.LatLng(lastPositionRef.current),
                 new window.google.maps.LatLng(newPosition)
             );
+        }
+
+        if (liveSessionId) {
+            await updateDoc(doc(db, 'live_sessions', liveSessionId), {
+                position: newPosition,
+                heading,
+            });
         }
 
         if (!userPositionMarker.current) {
@@ -277,10 +310,14 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
     return () => {
         if (positionWatcher.current !== null) navigator.geolocation.clearWatch(positionWatcher.current);
     };
-  }, [phase, route, isFollowingUser]);
+  }, [phase, route, isFollowingUser, liveSessionId]);
 
 
   const finishRoute = () => {
+    if (liveSessionId) {
+        deleteDoc(doc(db, 'live_sessions', liveSessionId));
+        setLiveSessionId(null);
+    }
     setIsConfirmModalOpen(true);
   };
 
@@ -399,10 +436,10 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       </Modal>
 
       <Modal isOpen={isCopilotModalOpen} onClose={() => setIsCopilotModalOpen(false)} title="Modo Co-piloto">
-        {route && (
+        {liveSessionId && (
             <div className="flex flex-col items-center text-center">
-                <p className="mb-4">Peça para seu co-piloto escanear o QR Code abaixo para acompanhar a rota.</p>
-                <QRCode value={`${window.location.origin}${window.location.pathname}?copilot=true&origin=${route.request.origin.location.toUrlValue()}&destination=${encodeURIComponent(route.request.destination.query)}`} />
+                <p className="mb-4">Peça para seu co-piloto escanear o QR Code abaixo para acompanhar a rota em tempo real.</p>
+                <QRCode value={`${window.location.origin}${window.location.pathname}?sessionId=${liveSessionId}`} />
             </div>
         )}
       </Modal>
