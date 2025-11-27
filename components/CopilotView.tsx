@@ -66,7 +66,8 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
   
   // Render route when data is available
   useEffect(() => {
-    if (routeData && mapInstance.current && status === 'active') {
+    // Render route if active OR ended (as long as we have data)
+    if (routeData && mapInstance.current) {
         const directionsService = new window.google.maps.DirectionsService();
         
         // Extract location coordinates from the serialized routeData object
@@ -93,7 +94,7 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
             );
         }
     }
-  }, [routeData, mapInstance.current, status]);
+  }, [routeData, mapInstance.current]); // Removed status dependency to keep route on screen
 
 
   useEffect(() => {
@@ -140,20 +141,20 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
             icon.rotation = heading;
             driverMarker.current.setIcon(icon);
           }
-          mapInstance.current.panTo(position);
-          mapInstance.current.setZoom(18);
+          if (status !== 'ended') {
+             mapInstance.current.panTo(position);
+             mapInstance.current.setZoom(18);
+          }
         }
       } else {
         // Session document deleted = route finished
         setStatus('ended');
         
-        // Clean up map elements
+        // Clean up ONLY the driver marker, keep the route
         if (driverMarker.current) {
           driverMarker.current.setMap(null);
         }
-        if (directionsRenderer.current) {
-            directionsRenderer.current.setMap(null); // Remove the route line
-        }
+        // Do NOT clear directionsRenderer so the route stays visible
       }
     }, (err) => {
       console.error("Error listening to live session:", err);
@@ -164,7 +165,7 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
     return () => unsubscribe();
   }, [sessionId, routeData]);
 
-  const renderHeader = () => (
+  const renderActiveHeader = () => (
     <div className="absolute top-0 left-0 right-0 p-4 z-20">
       <div className="bg-[#141414]/80 p-3 rounded-lg border border-[#444] max-w-sm mx-auto text-center shadow-lg">
           <h1 className="text-xl font-bold text-white tracking-tight">
@@ -175,15 +176,25 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
     </div>
   );
 
+  const renderEndedHeader = () => (
+    <div className="absolute top-0 left-0 right-0 p-4 z-20">
+        <div className="bg-[#141414]/90 p-4 rounded-xl border border-[#444] shadow-2xl max-w-sm mx-auto text-center backdrop-blur-md">
+            <h1 className="text-2xl font-bold text-white tracking-tight mb-1">
+            autonomia<span className="text-[#FF6B00]">+</span>
+            </h1>
+            <p className="text-sm font-bold text-[#FF6B00] tracking-widest uppercase">ROTA FINALIZADA</p>
+        </div>
+    </div>
+  );
+
   return (
     <div className="fixed inset-0 bg-[#0A0A0A] z-50">
-      {status !== 'ended' && (
-          <div ref={mapRef} className="absolute inset-0 z-0" />
-      )}
+      {/* Map is always rendered to show the route at the end */}
+      <div ref={mapRef} className="absolute inset-0 z-0" />
 
       {status === 'active' && (
         <>
-            {renderHeader()}
+            {renderActiveHeader()}
             <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
                 <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto">
                     <p className="text-lg font-semibold text-white min-h-[28px]">
@@ -203,28 +214,13 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
         </div>
       )}
 
-      {/* Ended State - Full Screen Block */}
-      {status === 'ended' && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#0A0A0A]">
-          <div className="w-full max-w-md p-8 text-center">
-            <div className="mb-6 flex items-end justify-center opacity-50">
-                <h1 className="text-4xl font-bold text-white tracking-tighter">
-                autonomia<span className="text-[#FF6B00]">+</span>
-                </h1>
-            </div>
-            <div className="bg-[#141414] p-8 rounded-xl shadow-2xl border border-[#333]">
-                <h2 className="text-2xl font-bold text-white mb-2">Rota Finalizada</h2>
-                <div className="w-16 h-1 bg-[#FF6B00] mx-auto mb-6 rounded-full"></div>
-                <p className="text-[#CFCFCF] text-lg mb-6">
-                    O motorista encerrou o trajeto ou a sessão expirou.
-                </p>
-                <p className="text-sm text-[#666] bg-[#0A0A0A] py-2 px-4 rounded-md inline-block">
-                    Link indisponível
-                </p>
-                {error && <p className="text-red-500 text-sm mt-4">{error}</p>}
-            </div>
-          </div>
-        </div>
+      {/* Ended State Header */}
+      {status === 'ended' && renderEndedHeader()}
+      
+      {error && status === 'ended' && (
+         <div className="absolute bottom-10 left-0 right-0 text-center z-20">
+             <p className="text-red-500 bg-black/80 inline-block px-4 py-2 rounded">{error}</p>
+         </div>
       )}
     </div>
   );
