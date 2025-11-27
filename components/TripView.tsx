@@ -38,6 +38,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isCopilotModalOpen, setIsCopilotModalOpen] = useState(false);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
   
   const [mapStatus, setMapStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [routeStatus, setRouteStatus] = useState<'idle' | 'calculating' | 'recalculating' | 'error'>('idle');
@@ -535,6 +536,14 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
     </div>
   );
 
+  const shareUrl = liveSessionId ? `${window.location.origin}${window.location.pathname}?sessionId=${liveSessionId}` : '';
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(shareUrl);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
   return (
     <div className={`fixed inset-0 bg-[#0A0A0A] z-40 flex flex-col ${phase === 'navigating' || phase === 'viewing' ? 'is-navigating' : ''}`}>
       <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-center">
@@ -572,8 +581,28 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       <Modal isOpen={isCopilotModalOpen} onClose={() => setIsCopilotModalOpen(false)} title="Modo Co-piloto">
         {liveSessionId && (
             <div className="flex flex-col items-center text-center">
-                <p className="mb-4">Peça para seu co-piloto escanear o QR Code abaixo para acompanhar a rota em tempo real.</p>
-                <QRCode value={`${window.location.origin}${window.location.pathname}?sessionId=${liveSessionId}`} />
+                <p className="mb-4 text-sm text-[#CFCFCF]">Peça para seu co-piloto escanear o QR Code abaixo para acompanhar a rota em tempo real.</p>
+                <div className="bg-white p-2 rounded-lg mb-6">
+                    <QRCode value={shareUrl} />
+                </div>
+
+                <div className="w-full">
+                    <p className="text-xs text-[#888] mb-2 uppercase font-semibold">Ou envie o link</p>
+                    <div className="flex items-center gap-2 bg-[#2a2a2a] p-2 rounded-md border border-[#444]">
+                        <input
+                            type="text"
+                            readOnly
+                            value={shareUrl}
+                            className="bg-transparent border-none text-[#CFCFCF] text-sm w-full focus:outline-none truncate"
+                        />
+                        <button
+                            onClick={handleCopyLink}
+                            className="text-[#FF6B00] hover:text-white text-xs font-bold uppercase whitespace-nowrap px-2"
+                        >
+                            {isCopied ? 'Copiado!' : 'Copiar'}
+                        </button>
+                    </div>
+                </div>
             </div>
         )}
       </Modal>
