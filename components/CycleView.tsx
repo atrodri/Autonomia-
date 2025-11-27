@@ -22,9 +22,14 @@ interface CycleViewProps {
   onRequestDeleteEvent: (event: HistoryEvent) => void;
 }
 
-const getCurrentDate = () => {
-  return new Date().toISOString().split('T')[0];
+const getCurrentDateTimeLocal = () => {
+    const now = new Date();
+    // Adjust for timezone offset
+    const timezoneOffset = now.getTimezoneOffset() * 60000;
+    const localDate = new Date(now.getTime() - timezoneOffset);
+    return localDate.toISOString().slice(0, 16);
 };
+
 
 const formatKilometerInput = (value: string): string => {
   if (!value) return '';
@@ -42,30 +47,15 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
   const isEditable = event.type === 'checkpoint' || event.type === 'refuel';
   const isViewable = event.type === 'route';
   const isClickable = isEditable || isViewable;
-
-  const formatValue = (type: HistoryEvent['type'], value: number) => {
-    switch (type) {
-      case 'start':
-      case 'checkpoint':
-      case 'finish':
-        return `${value.toLocaleString('pt-BR')} km`;
-      case 'refuel':
-        return `${value.toLocaleString('pt-BR')} L`;
-      case 'consumption':
-        return `${value.toLocaleString('pt-BR')} km/L`;
-      case 'route':
-        return `+${value.toLocaleString('pt-BR', {maximumFractionDigits: 1})} km`;
-    }
-  };
-
+  
   const getDescription = () => {
     switch (event.type) {
       case 'start':
-        return `Início do ciclo em ${formatValue(event.type, event.value)}`;
+        return `Início do ciclo em ${event.value?.toLocaleString('pt-BR')} km`;
       case 'checkpoint':
-        return `Checkpoint em ${formatValue(event.type, event.value)}`;
+        return `Checkpoint em ${event.value?.toLocaleString('pt-BR')} km`;
       case 'refuel':
-        let desc = `Abastecimento de ${formatValue(event.type, event.value)}`;
+        let desc = `Abastecimento de ${event.value?.toLocaleString('pt-BR')} L`;
         if (event.pricePerLiter) {
           desc += ` (R$ ${event.pricePerLiter.toFixed(2)}/L)`;
         }
@@ -74,11 +64,12 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         }
         return desc;
       case 'consumption':
-        return `Consumo atualizado para ${formatValue(event.type, event.value)}`;
+        return `Consumo atualizado para ${event.value?.toLocaleString('pt-BR')} km/L`;
       case 'finish':
-        return `Ciclo finalizado em ${formatValue(event.type, event.value)}`;
+        return `Ciclo finalizado em ${event.value?.toLocaleString('pt-BR')} km`;
       case 'route':
-        return `Rota concluída: ${formatValue(event.type, event.value)}`;
+        const distancia = 'distanciaPercorrida' in event ? event.distanciaPercorrida : 0;
+        return `Rota concluída: +${distancia?.toLocaleString('pt-BR', {maximumFractionDigits: 1})} km`;
       default:
         return '';
     }
@@ -103,11 +94,13 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
     }
   };
   
-  const formatHistoryDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('pt-BR', {
+  const formatHistoryDateTime = (dateString: string) => {
+    return new Date(dateString).toLocaleString('pt-BR', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
         timeZone: 'UTC'
     });
   };
@@ -127,7 +120,7 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         onClick={handleClick}
       >
         <p className="text-white text-sm">{getDescription()}</p>
-        <p className="text-xs text-[#888]">{formatHistoryDate(event.date)}</p>
+        <p className="text-xs text-[#888]">{formatHistoryDateTime(event.date)}</p>
       </div>
       {isEditable && (
         <div className="flex-shrink-0 mt-1 flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -160,41 +153,52 @@ const EditEventModal: React.FC<{
 
     useEffect(() => {
         if (event) {
-            setDate(new Date(event.date).toISOString().split('T')[0]);
+            const localDate = new Date(new Date(event.date).getTime() - new Date().getTimezoneOffset() * 60000);
+            setDate(localDate.toISOString().slice(0, 16));
+            // FIX: Use if/else if to ensure TypeScript correctly narrows the 
+            // discriminated union `HistoryEvent`. This allows safe access to properties 
+            // like `pricePerLiter` and `discount` which are specific to the 'refuel' event type.
             if (event.type === 'checkpoint') {
-                setValue(formatKilometerInput(event.value.toString()));
-            } else {
-                setValue(event.value.toString());
-            }
-            if (event.type === 'refuel') {
-                setPrice((event.pricePerLiter || '').toString());
-                setDiscount((event.discount || '').toString());
+                setValue(formatKilometerInput(event.value?.toString() || ''));
+            } else if (event.type === 'refuel') {
+                setValue(event.value?.toString() || '');
+                setPrice((event.pricePerLiter ?? '').toString());
+                setDiscount((event.discount ?? '').toString());
             }
         }
     }, [event]);
     
     const handleSave = () => {
+      if (!event) return;
         if (event.type === 'checkpoint') {
-            onSave({ 
+            const updatedEvent: HistoryEvent = { 
                 ...event, 
                 date: new Date(date).toISOString(), 
                 value: parseKilometerInput(value) 
-            });
+            };
+            onSave(updatedEvent);
         } else if (event.type === 'refuel') {
-            onSave({ 
+            const updatedEvent: HistoryEvent = { 
                 ...event, 
                 date: new Date(date).toISOString(),
                 value: parseFloat(value), 
                 pricePerLiter: price ? parseFloat(price) : undefined,
                 discount: discount ? parseFloat(discount) : undefined
-            });
+            };
+            // FIX: Use a type guard before accessing properties specific to 'refuel' events.
+            // Also, the delete statements are unnecessary and potentially buggy. Setting to undefined is sufficient.
+            if (updatedEvent.type === 'refuel') {
+                if (updatedEvent.pricePerLiter === undefined) delete updatedEvent.pricePerLiter;
+                if (updatedEvent.discount === undefined) delete updatedEvent.discount;
+            }
+            onSave(updatedEvent);
         }
     };
     
     return (
         <Modal isOpen={!!event} onClose={onClose} title={`Editar ${event.type === 'checkpoint' ? 'Checkpoint' : 'Abastecimento'}`}>
             <div className="space-y-4">
-                <Input id="edit-date" label="Data" type="date" value={date} onChange={e => setDate(e.target.value)} />
+                <Input id="edit-date" label="Data e Hora" type="datetime-local" value={date} onChange={e => setDate(e.target.value)} />
                 {event.type === 'checkpoint' && (
                     <Input id="edit-checkpoint-value" label="Quilometragem (km)" type="text" inputMode="numeric" value={value} onChange={e => setValue(formatKilometerInput(e.target.value))} />
                 )}
@@ -221,15 +225,15 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
   const [isFinishConfirmModalOpen, setFinishConfirmModalOpen] = useState(false);
   
   const [newMileage, setNewMileage] = useState('');
-  const [checkpointDate, setCheckpointDate] = useState(getCurrentDate());
+  const [checkpointDate, setCheckpointDate] = useState(getCurrentDateTimeLocal());
 
   const [fuelAdded, setFuelAdded] = useState('');
-  const [refuelDate, setRefuelDate] = useState(getCurrentDate());
+  const [refuelDate, setRefuelDate] = useState(getCurrentDateTimeLocal());
   const [pricePerLiter, setPricePerLiter] = useState('');
   const [discount, setDiscount] = useState('');
 
   const [newConsumption, setNewConsumption] = useState(cycle.consumption.toString());
-  const [consumptionDate, setConsumptionDate] = useState(getCurrentDate());
+  const [consumptionDate, setConsumptionDate] = useState(getCurrentDateTimeLocal());
 
   const isFinished = cycle.status === 'finished';
   const isReadyForAutonomy = cycle.fuelAmount > 0 && cycle.consumption > 0;
@@ -301,15 +305,15 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
   };
 
   const openCheckpointModal = () => {
-    setCheckpointDate(getCurrentDate());
+    setCheckpointDate(getCurrentDateTimeLocal());
     setCheckpointModalOpen(true);
   }
   const openRefuelModal = () => {
-    setRefuelDate(getCurrentDate());
+    setRefuelDate(getCurrentDateTimeLocal());
     setRefuelModalOpen(true);
   }
   const openConsumptionModal = () => {
-    setConsumptionDate(getCurrentDate());
+    setConsumptionDate(getCurrentDateTimeLocal());
     setNewConsumption(cycle.consumption > 0 ? cycle.consumption.toString() : '');
     setConsumptionModalOpen(true);
   }
@@ -420,11 +424,12 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
       <div className="w-full mt-8">
         <h3 className="text-lg font-semibold text-white mb-4 text-center">Histórico do Ciclo</h3>
         <Card className="w-full !p-4 md:!p-6">
-          {cycle.history.length > 0 ? (
+          {cycle.history.length > 1 ? ( // > 1 para ignorar o evento 'start'
             <div className="space-y-2">
-              {[...cycle.history].reverse().map((event) => (
-                <HistoryItem key={event.id} event={event} onEdit={onStartEditEvent} onDelete={onRequestDeleteEvent} onViewRoute={onViewRoute} />
-              ))}
+              {[...cycle.history].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map((event) => {
+                if (event.type === 'start') return null;
+                return <HistoryItem key={event.id} event={event} onEdit={onStartEditEvent} onDelete={onRequestDeleteEvent} onViewRoute={onViewRoute} />
+              })}
             </div>
           ) : (
             <p className="text-center text-[#888]">Nenhum evento registrado ainda.</p>
@@ -435,9 +440,9 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
       <Modal isOpen={isCheckpointModalOpen} onClose={() => setCheckpointModalOpen(false)} title="Adicionar Checkpoint">
         <div className="space-y-4">
           <Input
-            label="Data"
+            label="Data e Hora"
             id="checkpointDate"
-            type="date"
+            type="datetime-local"
             value={checkpointDate}
             onChange={(e) => setCheckpointDate(e.target.value)}
           />
@@ -460,9 +465,9 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
       <Modal isOpen={isRefuelModalOpen} onClose={() => setRefuelModalOpen(false)} title="Registrar Abastecimento">
         <div className="space-y-4">
           <Input
-            label="Data"
+            label="Data e Hora"
             id="refuelDate"
-            type="date"
+            type="datetime-local"
             value={refuelDate}
             onChange={(e) => setRefuelDate(e.target.value)}
           />
@@ -508,9 +513,9 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
       <Modal isOpen={isConsumptionModalOpen} onClose={() => setConsumptionModalOpen(false)} title="Atualizar Consumo">
         <div className="space-y-4">
           <Input
-            label="Data"
+            label="Data e Hora"
             id="consumptionDate"
-            type="date"
+            type="datetime-local"
             value={consumptionDate}
             onChange={(e) => setConsumptionDate(e.target.value)}
           />

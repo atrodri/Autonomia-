@@ -13,12 +13,14 @@ interface HomeScreenProps {
   onSelectReport: (id: string) => void;
   onDeleteCycle: (id: string) => void;
   showContent: boolean;
+  firestoreError: string | null;
 }
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, onNewCycleClick, onSelectCycle, onSelectReport, onDeleteCycle, showContent }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, onNewCycleClick, onSelectCycle, onSelectReport, onDeleteCycle, showContent, firestoreError }) => {
   const numberFormatter = useMemo(() => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }), []);
 
-  const formatDate = (dateStr: string) => {
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '';
     return new Date(dateStr).toLocaleDateString('pt-BR', {
         day: '2-digit',
         month: '2-digit',
@@ -43,7 +45,26 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, o
 
         <div className="w-full max-w-2xl text-left">
           <h2 className="text-base font-semibold uppercase tracking-wider text-[#888] mb-3 px-1">Ciclos Ativos</h2>
-          {activeCycles.length > 0 ? (
+          {firestoreError ? (
+             <Card className="!p-6 text-center border border-dashed border-red-700 bg-red-900/20">
+                <h3 className="text-lg font-bold text-red-400">Erro de Permissão do Firestore</h3>
+                <p className="mt-2 text-red-300">O aplicativo não conseguiu carregar seus dados. Isso geralmente acontece porque as Regras de Segurança do seu banco de dados precisam ser configuradas.</p>
+                <p className="mt-4 text-xs text-gray-400">Por favor, vá para o seu projeto no Console do Firebase, navegue até <strong>Firestore Database &gt; Regras</strong> e cole o seguinte código:</p>
+                <pre className="mt-2 p-2 bg-black/50 text-left text-xs text-gray-300 rounded-md overflow-x-auto">
+                    <code>
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /usuarios/{userId}/{document=**} {
+      allow read, write: if request.auth.uid == userId;
+    }
+  }
+}`}
+                    </code>
+                </pre>
+                 <p className="mt-4 text-xs text-gray-400">Após publicar as novas regras, recarregue o aplicativo.</p>
+            </Card>
+          ) : activeCycles.length > 0 ? (
             <div className="space-y-3">
               {activeCycles.map(cycle => {
                 const drivenKm = cycle.currentMileage - cycle.initialMileage;
@@ -94,9 +115,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ activeCycles, finishedCycles, o
                 <div key={cycle.id} className="bg-[#141414] rounded-lg p-4 shadow-md flex justify-between items-center">
                   <div>
                     <h3 className="font-bold text-white text-lg">{cycle.name}</h3>
-                    <p className="text-sm text-[#888]">
-                      Finalizado em {formatDate(cycle.history[cycle.history.length - 1].date)}
-                    </p>
+                    {cycle.finishDate && (
+                      <p className="text-sm text-[#888]">
+                        Finalizado em {formatDate(cycle.finishDate)}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                       <Button variant="secondary" onClick={() => onSelectReport(cycle.id)} className="!p-2" title="Ver Relatório">

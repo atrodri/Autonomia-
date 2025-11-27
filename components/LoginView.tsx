@@ -2,30 +2,47 @@ import React, { useState } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Card } from './ui/Card';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth } from '../firebase';
 
 interface LoginViewProps {
-  onLogin: (username: string, password_raw: string) => boolean;
   onSwitchToRegister: () => void;
-  registrationSuccess: boolean;
+  onSuccess: () => void;
 }
 
-const LoginView: React.FC<LoginViewProps> = ({ onLogin, onSwitchToRegister, registrationSuccess }) => {
-  const [username, setUsername] = useState('');
+const LoginView: React.FC<LoginViewProps> = ({ onSwitchToRegister, onSuccess }) => {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setLoading(true);
 
-    if (!username || !password) {
+    if (!email || !password) {
       setError("Por favor, preencha todos os campos.");
+      setLoading(false);
       return;
     }
 
-    const loginSuccess = onLogin(username, password);
-    if (!loginSuccess) {
-      setError("Nome de usuário/senha incorretos.");
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      onSuccess();
+    } catch (err: any) {
+      const errorCodes = ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'];
+      if (errorCodes.includes(err.code)) {
+        // This is an expected user error, not an application bug.
+        // Don't log it as a critical error to the console.
+        setError("Nome de usuário/senha incorretos.");
+      } else {
+        // This is an unexpected error.
+        console.error("Login failed with unexpected error:", err);
+        setError("Ocorreu um erro ao fazer login. Tente novamente.");
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -33,21 +50,14 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin, onSwitchToRegister, regi
     <Card className="w-full max-w-sm">
       <h2 className="text-2xl font-bold text-[#FF6B00] mb-6 text-center">Login</h2>
       
-      {registrationSuccess && (
-        <div className="mb-4 p-3 bg-green-900 border border-green-700 text-green-300 text-sm rounded-md text-center">
-            <p className="font-bold">Registro concluído!</p>
-            <p>Por favor, faça login para continuar.</p>
-        </div>
-      )}
-
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
-          label="Nome de Usuário"
-          id="username"
-          type="text"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          autoComplete="username"
+          label="E-mail"
+          id="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
           required
         />
         <Input
@@ -61,7 +71,9 @@ const LoginView: React.FC<LoginViewProps> = ({ onLogin, onSwitchToRegister, regi
         />
         {error && <p className="text-center text-sm text-red-500">{error}</p>}
         <div className="pt-2 space-y-2">
-          <Button type="submit" className="w-full">Entrar</Button>
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? 'Entrando...' : 'Entrar'}
+          </Button>
           <p className="text-center text-sm text-[#888]">
             Não tem uma conta?{' '}
             <button type="button" onClick={onSwitchToRegister} className="font-semibold text-[#FF6B00] hover:underline">
