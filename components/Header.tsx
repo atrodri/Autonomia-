@@ -1,6 +1,6 @@
 import React from 'react';
 import { LogoutIcon, UserIcon } from './icons/Icons';
-import { signOut } from 'firebase/auth';
+// Fix: Use auth.signOut() from the compat library instead of the v9 signOut function.
 import { auth } from '../firebase';
 
 interface HeaderProps {
@@ -12,7 +12,8 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ userName, userPhotoURL, onOpenSettings }) => {
   const handleLogout = async () => {
     try {
-        await signOut(auth);
+        // Fix: Use auth.signOut() (compat/v8 style) instead of signOut(auth) (v9 style).
+        await auth.signOut();
     } catch (error) {
         console.error("Error signing out", error);
     }

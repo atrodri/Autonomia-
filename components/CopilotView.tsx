@@ -1,6 +1,4 @@
-
 import React, { useEffect, useRef, useState } from 'react';
-import { onSnapshot, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 
 declare global {
@@ -66,7 +64,6 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
   
   // Render route when data is available
   useEffect(() => {
-    // Only render route if active
     if (status === 'active' && routeData && mapInstance.current) {
         const directionsService = new window.google.maps.DirectionsService();
         
@@ -99,22 +96,22 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
   useEffect(() => {
     if (!sessionId) return;
 
-    const sessionDocRef = doc(db, 'live_sessions', sessionId);
-    const unsubscribe = onSnapshot(sessionDocRef, (docSnap) => {
-      if (docSnap.exists()) {
+    // Fix: Use db.collection().doc().onSnapshot() (compat/v8 style)
+    const sessionDocRef = db.collection('live_sessions').doc(sessionId);
+    const unsubscribe = sessionDocRef.onSnapshot((docSnap) => {
+      if (docSnap.exists) {
         setStatus('active');
         const data = docSnap.data();
         
-        // Update route data if changed (e.g. recalculation)
-        if (JSON.stringify(data.routeData) !== JSON.stringify(routeData)) {
+        if (data && JSON.stringify(data.routeData) !== JSON.stringify(routeData)) {
             setRouteData(data.routeData);
         }
 
-        const position = data.position;
-        const heading = data.heading;
-        const currentStepIndex = data.currentStepIndex;
+        const position = data?.position;
+        const heading = data?.heading;
+        const currentStepIndex = data?.currentStepIndex;
 
-        if (data.routeData?.steps && typeof currentStepIndex === 'number') {
+        if (data?.routeData?.steps && typeof currentStepIndex === 'number') {
             const instructionText = data.routeData.steps[currentStepIndex]?.instructions || "Continuar na rota";
             setCurrentInstruction(instructionText.replace(/<[^>]*>/g, ''));
         }
@@ -147,14 +144,15 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
           }
         }
       } else {
-        // Session document deleted = route finished
         setStatus('ended');
         
-        // Remove marker immediately as tracking stopped
         if (driverMarker.current) {
           driverMarker.current.setMap(null);
+          driverMarker.current = null;
         }
-        // NOTE: We keep directionsRenderer active so the route line remains visible on the map
+        if (directionsRenderer.current) {
+          directionsRenderer.current.setMap(null);
+        }
       }
     }, (err) => {
       console.error("Error listening to live session:", err);
@@ -163,43 +161,47 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
     });
 
     return () => unsubscribe();
-  }, [sessionId]); 
+  }, [sessionId, routeData]); 
 
   return (
     <div className="fixed inset-0 bg-[#0A0A0A] z-50">
       <div ref={mapRef} className="absolute inset-0 z-0" />
 
-      {(status === 'active' || status === 'ended') && (
+      {status === 'active' && (
         <>
             <div className="absolute top-0 left-0 right-0 p-4 z-20">
                 <div className="bg-[#141414]/80 p-3 rounded-lg border border-[#444] max-w-sm mx-auto text-center shadow-lg backdrop-blur-md">
                     <h1 className="text-xl font-bold text-white tracking-tight">
                         autonomia<span className="text-[#FF6B00]">+</span>
                     </h1>
-                    <p className={`text-xs font-semibold uppercase tracking-wider ${status === 'ended' ? 'text-red-500' : 'text-[#888]'}`}>
-                        {status === 'ended' ? 'ROTA FINALIZADA' : 'Modo Co-piloto'}
+                    <p className='text-xs font-semibold uppercase tracking-wider text-[#888]'>
+                        Modo Co-piloto
                     </p>
                 </div>
             </div>
 
-            {status === 'active' && (
-                <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
-                    <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto backdrop-blur-md">
-                        <p className="text-lg font-semibold text-white min-h-[28px]">
-                            {currentInstruction}
-                        </p>
-                    </div>
+            <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
+                <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto backdrop-blur-md">
+                    <p className="text-lg font-semibold text-white min-h-[28px]">
+                        {currentInstruction}
+                    </p>
                 </div>
-            )}
-            
-            {status === 'ended' && error && (
-                 <div className="absolute bottom-0 left-0 right-0 p-4 z-10 flex justify-center">
-                    <div className="bg-red-900/90 p-3 rounded-lg border border-red-700 text-white text-sm">
-                        {error}
-                    </div>
-                </div>
-            )}
+            </div>
         </>
+      )}
+
+      {status === 'ended' && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm text-center">
+            <div className="mb-4">
+                <h1 className="text-4xl font-bold text-white tracking-tighter">
+                    autonomia<span className="text-[#FF6B00]">+</span>
+                </h1>
+            </div>
+            <div className="bg-[#141414] p-4 rounded-lg border border-red-700">
+                <h2 className="text-lg font-bold text-red-400">ROTA FINALIZADA</h2>
+                <p className="text-sm text-[#888] mt-1">{error || "Esta sessão de navegação foi encerrada."}</p>
+            </div>
+        </div>
       )}
       
       {status === 'connecting' && (

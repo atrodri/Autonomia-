@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { Cycle, HistoryEvent } from '../types';
 import { Button } from './ui/Button';
@@ -7,7 +6,6 @@ import { Modal } from './ui/Modal';
 import { ChevronLeftIcon, MyLocationIcon, CopilotIcon } from './icons/Icons';
 import { QRCode } from './ui/QRCode';
 import { db, auth } from '../firebase';
-import { doc, addDoc, collection, updateDoc, deleteDoc } from 'firebase/firestore';
 
 
 declare global {
@@ -248,7 +246,8 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         const leg = route.routes[0].legs[0];
         const routeDataForCopilot = serializeRouteData(leg);
 
-        const sessionRef = await addDoc(collection(db, 'live_sessions'), {
+        // Fix: Use db.collection().add() (compat/v8 style)
+        const sessionRef = await db.collection('live_sessions').add({
             driverId: auth.currentUser.uid,
             createdAt: new Date().toISOString(),
             routeData: routeDataForCopilot,
@@ -266,8 +265,8 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   useEffect(() => {
     return () => {
       if (liveSessionId) {
-        // Add catch block to prevent unhandled promise rejections due to permission errors
-        deleteDoc(doc(db, 'live_sessions', liveSessionId)).catch(err => {
+        // Fix: Use db.collection().doc().delete() (compat/v8 style)
+        db.collection('live_sessions').doc(liveSessionId).delete().catch(err => {
             console.warn("Could not delete live session on cleanup (likely permission issue or already deleted):", err);
         });
       }
@@ -297,7 +296,8 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
                   // Update live session with new route data
                   if (liveSessionId) {
                       const newRouteData = serializeRouteData(leg);
-                      updateDoc(doc(db, 'live_sessions', liveSessionId), {
+                      // Fix: Use db.collection().doc().update() (compat/v8 style)
+                      db.collection('live_sessions').doc(liveSessionId).update({
                           routeData: newRouteData,
                           currentStepIndex: 0 // Reset step index for new route
                       }).catch(err => console.error("Error updating route for copilot", err));
@@ -389,7 +389,8 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         }
 
         if (liveSessionId) {
-            await updateDoc(doc(db, 'live_sessions', liveSessionId), {
+            // Fix: Use db.collection().doc().update() (compat/v8 style)
+            await db.collection('live_sessions').doc(liveSessionId).update({
                 position: newPosition,
                 heading,
                 currentStepIndex,
@@ -434,7 +435,8 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
 
   const finishRoute = () => {
     if (liveSessionId) {
-        deleteDoc(doc(db, 'live_sessions', liveSessionId)).catch(err => console.warn("Delete session failed:", err));
+        // Fix: Use db.collection().doc().delete() (compat/v8 style)
+        db.collection('live_sessions').doc(liveSessionId).delete().catch(err => console.warn("Delete session failed:", err));
         setLiveSessionId(null);
     }
     setIsConfirmModalOpen(true);

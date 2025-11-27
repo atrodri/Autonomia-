@@ -1,8 +1,9 @@
-import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getAnalytics } from "firebase/analytics";
-import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+// Fix: Use firebase/compat/ to be compatible with older firebase versions and fix import errors.
+import firebase from "firebase/compat/app";
+import "firebase/compat/auth";
+import "firebase/compat/analytics";
+import "firebase/compat/firestore";
+import "firebase/compat/storage";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCG-nUBhOl0i_ZYi-KsRet6fLWCDli-loQ",
@@ -14,8 +15,13 @@ const firebaseConfig = {
   measurementId: "G-6CTMKGR05T"
 };
 
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export const analytics = getAnalytics(app);
+// Fix: Initialize app using the compat/v8 style.
+if (!firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+}
+
+// Fix: Export services using the compat/v8 style.
+export const auth = firebase.auth();
+export const db = firebase.firestore();
+export const storage = firebase.storage();
+export const analytics = firebase.analytics();

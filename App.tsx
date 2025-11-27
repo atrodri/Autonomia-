@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect } from 'react';
 import type { Cycle, HistoryEvent } from './types';
 import CycleForm from './components/CycleForm';
@@ -13,9 +14,11 @@ import CopilotView from './components/CopilotView';
 import UserSettingsModal from './components/UserSettingsModal';
 
 // Firebase
-import { onAuthStateChanged, User } from 'firebase/auth';
+// Fix: Use Firebase compat library to resolve import errors.
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import 'firebase/compat/firestore';
 import { auth, db } from './firebase';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, Timestamp, orderBy, query, writeBatch, getDocs } from 'firebase/firestore';
 
 // Auth Components
 import AuthView from './components/AuthView';
@@ -56,6 +59,8 @@ const recalculateCycleStateFromHistory = (initialCycleState: Omit<Cycle, 'histor
 type AppLoadState = 'loading' | 'loaded';
 type AuthState = 'checking' | 'authenticated' | 'unauthenticated';
 type AuthViewType = 'landing' | 'login' | 'register';
+// Fix: Define User type from firebase compat.
+type User = firebase.User;
 
 const App: React.FC = () => {
   const [appLoadState, setAppLoadState] = useState<AppLoadState>('loading');
@@ -95,7 +100,7 @@ const App: React.FC = () => {
 
   // Firebase Auth Listener
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    const unsubscribe = auth.onAuthStateChanged((user) => {
       if (user) {
         setCurrentUser(user);
         setAuthState('authenticated');
@@ -116,18 +121,18 @@ const App: React.FC = () => {
   useEffect(() => {
     if (currentUser?.uid) {
         setFirestoreError(null);
-        const cyclesCollectionRef = collection(db, 'usuarios', currentUser.uid, 'ciclos');
-        const q = query(cyclesCollectionRef, orderBy('startDate', 'desc'));
+        const cyclesCollectionRef = db.collection('usuarios').doc(currentUser.uid).collection('ciclos');
+        const q = cyclesCollectionRef.orderBy('startDate', 'desc');
 
-        const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const unsubscribe = q.onSnapshot((querySnapshot) => {
             setFirestoreError(null);
             const cyclesData = querySnapshot.docs.map(doc => {
               const data = doc.data();
               return {
                 id: doc.id,
                 name: data.name || 'Ciclo sem nome',
-                startDate: (data.startDate as Timestamp)?.toDate().toISOString() || new Date().toISOString(),
-                finishDate: (data.finishDate as Timestamp)?.toDate().toISOString(),
+                startDate: (data.startDate as firebase.firestore.Timestamp)?.toDate().toISOString() || new Date().toISOString(),
+                finishDate: (data.finishDate as firebase.firestore.Timestamp)?.toDate().toISOString(),
                 initialMileage: data.initialMileage ?? 0,
                 currentMileage: data.currentMileage ?? 0,
                 fuelAmount: data.fuelAmount ?? 0,
@@ -180,14 +185,15 @@ const App: React.FC = () => {
             setter([]); // Clear state on error
         };
 
-        const subcollectionRef = collection(db, basePath, subcollection);
-        return onSnapshot(subcollectionRef, (snap) => {
+        // FIX: basePath refers to a document. Use db.doc() to create a DocumentReference before accessing a subcollection.
+        const subcollectionRef = db.doc(basePath).collection(subcollection);
+        return subcollectionRef.onSnapshot((snap) => {
             const events = snap.docs.map((doc: any) => {
                 const data = doc.data();
                 return {
                     id: doc.id,
                     ...data,
-                    date: (data.date as Timestamp)?.toDate().toISOString() || new Date().toISOString()
+                    date: (data.date as firebase.firestore.Timestamp)?.toDate().toISOString() || new Date().toISOString()
                 };
             });
             setter(events as HistoryEvent[]);
@@ -300,7 +306,7 @@ const App: React.FC = () => {
     
     const newCycleData = {
       ...restCycleData,
-      startDate: Timestamp.fromDate(new Date(restCycleData.startDate)),
+      startDate: firebase.firestore.Timestamp.fromDate(new Date(restCycleData.startDate)),
       currentMileage: restCycleData.initialMileage,
       fuelAmount: initialFuel || 0,
       consumption: 0,
@@ -308,13 +314,13 @@ const App: React.FC = () => {
     };
 
     try {
-      const docRef = await addDoc(collection(db, 'usuarios', currentUser.uid, 'ciclos'), newCycleData);
+      const docRef = await db.collection('usuarios').doc(currentUser.uid).collection('ciclos').add(newCycleData);
       
       if (initialFuel && initialFuel > 0) {
-          await addDoc(collection(db, 'usuarios', currentUser.uid, 'ciclos', docRef.id, 'abastecimento'), {
+          await db.collection('usuarios').doc(currentUser.uid).collection('ciclos').doc(docRef.id).collection('abastecimento').add({
               type: 'refuel',
               value: initialFuel,
-              date: Timestamp.fromDate(new Date(restCycleData.startDate))
+              date: firebase.firestore.Timestamp.fromDate(new Date(restCycleData.startDate))
           });
       }
 
@@ -334,16 +340,17 @@ const App: React.FC = () => {
 
       // Fetch all events again to ensure consistency
       const basePath = `usuarios/${currentUser.uid}/ciclos/${cycleId}`;
+      // FIX: basePath refers to a document. Use db.doc() to create a DocumentReference before accessing a subcollection.
       const [abastecimentoSnap, checkpointSnap, consumoSnap] = await Promise.all([
-          getDocs(collection(db, basePath, 'abastecimento')),
-          getDocs(collection(db, basePath, 'checkpoint')),
-          getDocs(collection(db, basePath, 'consumo'))
+          db.doc(basePath).collection('abastecimento').get(),
+          db.doc(basePath).collection('checkpoint').get(),
+          db.doc(basePath).collection('consumo').get()
       ]);
       
       const combinedHistory = [
-          ...abastecimentoSnap.docs.map(d => ({...d.data(), id: d.id, date: d.data().date.toDate().toISOString() })),
-          ...checkpointSnap.docs.map(d => ({...d.data(), id: d.id, date: d.data().date.toDate().toISOString() })),
-          ...consumoSnap.docs.map(d => ({...d.data(), id: d.id, date: d.data().date.toDate().toISOString() }))
+          ...abastecimentoSnap.docs.map(d => ({...d.data(), id: d.id, date: (d.data().date as firebase.firestore.Timestamp).toDate().toISOString() })),
+          ...checkpointSnap.docs.map(d => ({...d.data(), id: d.id, date: (d.data().date as firebase.firestore.Timestamp).toDate().toISOString() })),
+          ...consumoSnap.docs.map(d => ({...d.data(), id: d.id, date: (d.data().date as firebase.firestore.Timestamp).toDate().toISOString() }))
       ] as HistoryEvent[];
       
       const { currentMileage, fuelAmount, consumption } = recalculateCycleStateFromHistory(
@@ -351,8 +358,8 @@ const App: React.FC = () => {
           combinedHistory
       );
 
-      const cycleRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', cycleId);
-      await updateDoc(cycleRef, {
+      const cycleRef = db.collection('usuarios').doc(currentUser.uid).collection('ciclos').doc(cycleId);
+      await cycleRef.update({
           currentMileage,
           fuelAmount,
           consumption
@@ -361,9 +368,9 @@ const App: React.FC = () => {
 
   const addEventToSubcollection = async (collectionName: string, data: any) => {
       if (!currentUser || !activeCycleId) return;
-      await addDoc(collection(db, 'usuarios', currentUser.uid, 'ciclos', activeCycleId, collectionName), {
+      await db.collection('usuarios').doc(currentUser.uid).collection('ciclos').doc(activeCycleId).collection(collectionName).add({
           ...data,
-          date: Timestamp.fromDate(new Date(data.date))
+          date: firebase.firestore.Timestamp.fromDate(new Date(data.date))
       });
       await updateParentAggregates(activeCycleId);
   };
@@ -403,16 +410,16 @@ const App: React.FC = () => {
   const handleFinishCycle = useCallback(async () => {
     if (!currentUser || !activeCycleId || !activeCycleWithHistory) return;
     
-    const finishTimestamp = Timestamp.now();
+    const finishTimestamp = firebase.firestore.Timestamp.now();
     
-    await addDoc(collection(db, 'usuarios', currentUser.uid, 'ciclos', activeCycleId, 'checkpoint'), {
+    await db.collection('usuarios').doc(currentUser.uid).collection('ciclos').doc(activeCycleId).collection('checkpoint').add({
         type: 'finish',
         value: activeCycleWithHistory.currentMileage,
         date: finishTimestamp
     });
 
-    const cycleRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', activeCycleId);
-    await updateDoc(cycleRef, { 
+    const cycleRef = db.collection('usuarios').doc(currentUser.uid).collection('ciclos').doc(activeCycleId);
+    await cycleRef.update({ 
       status: 'finished',
       finishDate: finishTimestamp 
     });
@@ -424,13 +431,13 @@ const App: React.FC = () => {
   const handleConfirmDelete = async () => {
     if (!cycleToDeleteId || !currentUser) return;
     
-    const cycleDocRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', cycleToDeleteId);
+    const cycleDocRef = db.collection('usuarios').doc(currentUser.uid).collection('ciclos').doc(cycleToDeleteId);
     try {
-      const batch = writeBatch(db);
+      const batch = db.batch();
       const subcollections = ['abastecimento', 'checkpoint', 'consumo'];
       for (const sub of subcollections) {
-          const subcollectionRef = collection(db, cycleDocRef.path, sub);
-          const snapshot = await getDocs(subcollectionRef);
+          const subcollectionRef = cycleDocRef.collection(sub);
+          const snapshot = await subcollectionRef.get();
           snapshot.forEach(doc => batch.delete(doc.ref));
       }
       
@@ -461,14 +468,14 @@ const App: React.FC = () => {
     const collectionName = getCollectionNameByType(updatedEvent.type);
     if (!collectionName) return; 
 
-    const eventRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', activeCycleId, collectionName, updatedEvent.id);
+    const eventRef = db.collection('usuarios').doc(currentUser.uid).collection('ciclos').doc(activeCycleId).collection(collectionName).doc(updatedEvent.id);
     
-    const payload: any = { ...updatedEvent, date: Timestamp.fromDate(new Date(updatedEvent.date)) };
+    const payload: any = { ...updatedEvent, date: firebase.firestore.Timestamp.fromDate(new Date(updatedEvent.date)) };
     delete payload.id;
     
     Object.keys(payload).forEach(key => payload[key] === undefined && delete payload[key]);
 
-    await updateDoc(eventRef, payload);
+    await eventRef.update(payload);
     await updateParentAggregates(activeCycleId);
     
     setEventToEdit(null);
@@ -482,8 +489,8 @@ const App: React.FC = () => {
     
     const collectionName = getCollectionNameByType(eventToDelete.type);
     if (collectionName) {
-        const eventRef = doc(db, 'usuarios', currentUser.uid, 'ciclos', activeCycleId, collectionName, eventToDelete.id);
-        await deleteDoc(eventRef);
+        const eventRef = db.collection('usuarios').doc(currentUser.uid).collection('ciclos').doc(activeCycleId).collection(collectionName).doc(eventToDelete.id);
+        await eventRef.delete();
         await updateParentAggregates(activeCycleId);
     }
     setEventToDelete(null);
@@ -545,7 +552,7 @@ const App: React.FC = () => {
   }
   
   return (
-    <div className="min-h-screen flex flex-col relative overflow-hidden">
+    <div className="min-h-screen flex flex-col relative overflow-hidden bg-[#0A0A0A]">
       {appLoadState === 'loading' && <SplashScreen />}
 
       {appLoadState === 'loaded' && (

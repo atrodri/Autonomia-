@@ -22,11 +22,8 @@ interface CycleViewProps {
   onRequestDeleteEvent: (event: HistoryEvent) => void;
 }
 
-const getCurrentDateTimeLocal = () => {
-    const now = new Date();
-    const timezoneOffset = now.getTimezoneOffset() * 60000;
-    const localDate = new Date(now.getTime() - timezoneOffset);
-    return localDate.toISOString().slice(0, 16);
+const getCurrentDateISO = () => {
+    return new Date().toISOString().split('T')[0];
 };
 
 
@@ -94,13 +91,12 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
     }
   };
   
-  const formatHistoryDateTime = (dateString: string) => {
-    return new Date(dateString).toLocaleString('pt-BR', {
+  const formatHistoryDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('pt-BR', {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
+        timeZone: 'UTC'
     });
   };
 
@@ -119,7 +115,7 @@ const HistoryItem: React.FC<{ event: HistoryEvent; onEdit: (event: HistoryEvent)
         onClick={handleClick}
       >
         <p className="text-white text-sm">{getDescription()}</p>
-        <p className="text-xs text-[#888]">{formatHistoryDateTime(event.date)}</p>
+        <p className="text-xs text-[#888]">{formatHistoryDate(event.date)}</p>
       </div>
       {(isEditable || isDeletable) && (
         <div className="flex-shrink-0 mt-1 flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -156,9 +152,10 @@ const EditEventModal: React.FC<{
 
     useEffect(() => {
         if (event) {
-            const localDate = new Date(new Date(event.date).getTime() - new Date().getTimezoneOffset() * 60000);
-            setDate(localDate.toISOString().slice(0, 16));
+            const dateForInput = new Date(event.date).toISOString().split('T')[0];
+            setDate(dateForInput);
             
+            // Fix: Use switch statement for better type narrowing.
             switch(event.type) {
                 case 'checkpoint':
                     setValue(formatKilometerInput((event.value ?? 0).toString()));
@@ -202,7 +199,7 @@ const EditEventModal: React.FC<{
     return (
         <Modal isOpen={!!event} onClose={onClose} title={`Editar ${event.type}`}>
             <div className="space-y-4">
-                <Input id="edit-date" label="Data e Hora" type="datetime-local" value={date} onChange={e => setDate(e.target.value)} />
+                <Input id="edit-date" label="Data" type="date" value={date} onChange={e => setDate(e.target.value)} />
                 {event.type === 'checkpoint' && (
                     <Input id="edit-checkpoint-value" label="Quilometragem (km)" type="text" inputMode="numeric" value={value} onChange={e => setValue(formatKilometerInput(e.target.value))} />
                 )}
@@ -232,15 +229,15 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
   const [isFinishConfirmModalOpen, setFinishConfirmModalOpen] = useState(false);
   
   const [newMileage, setNewMileage] = useState('');
-  const [checkpointDate, setCheckpointDate] = useState(getCurrentDateTimeLocal());
+  const [checkpointDate, setCheckpointDate] = useState(getCurrentDateISO());
 
   const [fuelAdded, setFuelAdded] = useState('');
-  const [refuelDate, setRefuelDate] = useState(getCurrentDateTimeLocal());
+  const [refuelDate, setRefuelDate] = useState(getCurrentDateISO());
   const [pricePerLiter, setPricePerLiter] = useState('');
   const [discount, setDiscount] = useState('');
 
   const [newConsumption, setNewConsumption] = useState(cycle.consumption.toString());
-  const [consumptionDate, setConsumptionDate] = useState(getCurrentDateTimeLocal());
+  const [consumptionDate, setConsumptionDate] = useState(getCurrentDateISO());
 
   const isFinished = cycle.status === 'finished';
   const isReadyForAutonomy = (cycle.fuelAmount ?? 0) > 0 && (cycle.consumption ?? 0) > 0;
@@ -312,15 +309,15 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
   };
 
   const openCheckpointModal = () => {
-    setCheckpointDate(getCurrentDateTimeLocal());
+    setCheckpointDate(getCurrentDateISO());
     setCheckpointModalOpen(true);
   }
   const openRefuelModal = () => {
-    setRefuelDate(getCurrentDateTimeLocal());
+    setRefuelDate(getCurrentDateISO());
     setRefuelModalOpen(true);
   }
   const openConsumptionModal = () => {
-    setConsumptionDate(getCurrentDateTimeLocal());
+    setConsumptionDate(getCurrentDateISO());
     setNewConsumption((cycle.consumption ?? 0) > 0 ? (cycle.consumption ?? 0).toString() : '');
     setConsumptionModalOpen(true);
   }
@@ -447,9 +444,9 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
       <Modal isOpen={isCheckpointModalOpen} onClose={() => setCheckpointModalOpen(false)} title="Adicionar Checkpoint">
         <div className="space-y-4">
           <Input
-            label="Data e Hora"
+            label="Data"
             id="checkpointDate"
-            type="datetime-local"
+            type="date"
             value={checkpointDate}
             onChange={(e) => setCheckpointDate(e.target.value)}
           />
@@ -472,9 +469,9 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
       <Modal isOpen={isRefuelModalOpen} onClose={() => setRefuelModalOpen(false)} title="Registrar Abastecimento">
         <div className="space-y-4">
           <Input
-            label="Data e Hora"
+            label="Data"
             id="refuelDate"
-            type="datetime-local"
+            type="date"
             value={refuelDate}
             onChange={(e) => setRefuelDate(e.target.value)}
           />
@@ -520,9 +517,9 @@ const CycleView: React.FC<CycleViewProps> = ({ cycle, onAddCheckpoint, onRefuel,
       <Modal isOpen={isConsumptionModalOpen} onClose={() => setConsumptionModalOpen(false)} title="Atualizar Consumo">
         <div className="space-y-4">
           <Input
-            label="Data e Hora"
+            label="Data"
             id="consumptionDate"
-            type="datetime-local"
+            type="date"
             value={consumptionDate}
             onChange={(e) => setConsumptionDate(e.target.value)}
           />

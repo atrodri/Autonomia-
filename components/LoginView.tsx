@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Card } from './ui/Card';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+// Fix: Use auth.signInWithEmailAndPassword from the compat library instead of the v9 function.
 import { auth } from '../firebase';
 
 interface LoginViewProps {
@@ -28,7 +28,8 @@ const LoginView: React.FC<LoginViewProps> = ({ onSwitchToRegister, onSuccess }) 
     }
 
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      // Fix: Use auth.signInWithEmailAndPassword (compat/v8 style) instead of signInWithEmailAndPassword(auth, ...) (v9 style).
+      await auth.signInWithEmailAndPassword(email, password);
       onSuccess();
     } catch (err: any) {
       const errorCodes = ['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'];

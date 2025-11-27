@@ -2,8 +2,7 @@ import React, { useState } from 'react';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Card } from './ui/Card';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc } from 'firebase/firestore';
+// Fix: Use auth service methods from the compat library instead of v9 functions.
 import { auth, db } from '../firebase';
 
 interface RegisterViewProps {
@@ -38,15 +37,19 @@ const RegisterView: React.FC<RegisterViewProps> = ({ onSwitchToLogin, onCancel }
 
     setLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await auth.createUserWithEmailAndPassword(email, password);
       const user = userCredential.user;
 
-      await updateProfile(user, {
-        displayName: fullName
-      });
+      if (user) {
+        await user.updateProfile({
+          displayName: fullName
+        });
+      }
+
 
       // Add user to Firestore 'usuarios' collection
-      await setDoc(doc(db, "usuarios", user.uid), {
+      // Fix: Use db.collection().doc().set() (compat/v8 style)
+      await db.collection("usuarios").doc(user.uid).set({
         uid: user.uid,
         displayName: fullName,
         email: email,

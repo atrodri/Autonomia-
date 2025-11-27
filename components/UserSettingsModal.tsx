@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { User, updateProfile, updateEmail, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, updateDoc } from 'firebase/firestore';
-import { auth, storage, db } from '../firebase';
+// Fix: Use Firebase compat library to resolve import errors for auth methods and types.
+import firebase from 'firebase/compat/app';
+import 'firebase/compat/auth';
+import { storage, db } from '../firebase';
 import { Modal } from './ui/Modal';
 import { Input } from './ui/Input';
 import { Button } from './ui/Button';
 import { CameraIcon, UserIcon } from './icons/Icons';
+
+// Fix: Define User type from firebase compat.
+type User = firebase.User;
 
 interface UserSettingsModalProps {
   isOpen: boolean;
@@ -50,15 +53,15 @@ const UserSettingsModal: React.FC<UserSettingsModalProps> = ({ isOpen, onClose, 
         return;
     }
     try {
-      // Update Firebase Auth profile
-      await updateProfile(currentUser, {
+      await currentUser.updateProfile({
         displayName: displayName,
         photoURL: photoURL
       });
       
       // Update Firestore document
-      const userDocRef = doc(db, "usuarios", currentUser.uid);
-      await updateDoc(userDocRef, {
+      // Fix: Use db.collection().doc().update() (compat/v8 style)
+      const userDocRef = db.collection("usuarios").doc(currentUser.uid);
+      await userDocRef.update({
         displayName: displayName,
         photoURL: photoURL
       });
@@ -75,9 +78,12 @@ const UserSettingsModal: React.FC<UserSettingsModalProps> = ({ isOpen, onClose, 
       setUploading(true);
       setMessage(null);
       try {
-        const storageRef = ref(storage, `user_avatars/${currentUser.uid}/${file.name}`);
-        await uploadBytes(storageRef, file);
-        const url = await getDownloadURL(storageRef);
+        // Fix: Use storage.ref() (compat/v8 style)
+        const storageRef = storage.ref(`user_avatars/${currentUser.uid}/${file.name}`);
+        // Fix: Use storageRef.put() (compat/v8 style)
+        await storageRef.put(file);
+        // Fix: Use storageRef.getDownloadURL() (compat/v8 style)
+        const url = await storageRef.getDownloadURL();
         setPhotoURL(url);
         setMessage({ type: 'success', text: 'Imagem enviada! Clique em "Salvar Perfil" para aplicar.'})
       } catch (error: any) {
@@ -101,16 +107,17 @@ const UserSettingsModal: React.FC<UserSettingsModalProps> = ({ isOpen, onClose, 
     }
 
     try {
-      const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
-      await reauthenticateWithCredential(currentUser, credential);
+      const credential = firebase.auth.EmailAuthProvider.credential(currentUser.email, currentPassword);
+      await currentUser.reauthenticateWithCredential(credential);
 
       let successMessage = "Conta atualizada com sucesso!";
       
       // Update email if changed
       if (email !== currentUser.email) {
-        await updateEmail(currentUser, email);
-        const userDocRef = doc(db, "usuarios", currentUser.uid);
-        await updateDoc(userDocRef, { email: email });
+        await currentUser.updateEmail(email);
+        // Fix: Use db.collection().doc().update() (compat/v8 style)
+        const userDocRef = db.collection("usuarios").doc(currentUser.uid);
+        await userDocRef.update({ email: email });
         successMessage = "E-mail atualizado! ";
       }
 
@@ -124,7 +131,7 @@ const UserSettingsModal: React.FC<UserSettingsModalProps> = ({ isOpen, onClose, 
             setMessage({ type: 'error', text: 'As novas senhas não coincidem.' });
             return;
         }
-        await updatePassword(currentUser, newPassword);
+        await currentUser.updatePassword(newPassword);
         successMessage += "Senha atualizada!";
       }
 
