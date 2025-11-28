@@ -4,7 +4,7 @@ import type { Cycle, HistoryEvent } from '../types';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Modal } from './ui/Modal';
-import { ChevronLeftIcon, MyLocationIcon, CopilotIcon } from './icons/Icons';
+import { ChevronLeftIcon, MyLocationIcon, CopilotIcon, LightbulbIcon } from './icons/Icons';
 import { QRCode } from './ui/QRCode';
 import { db, auth } from '../firebase';
 
@@ -35,6 +35,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const [currentInstruction, setCurrentInstruction] = useState('');
   
   const [isFollowingUser, setIsFollowingUser] = useState(true);
+  const [keepScreenOn, setKeepScreenOn] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isCopilotModalOpen, setIsCopilotModalOpen] = useState(false);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
@@ -64,6 +65,8 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const traveledDistanceRef = useRef(0);
   const traveledPathRef = useRef<{ lat: number; lng: number; }[]>([]);
   const isRecalculatingRef = useRef(false);
+  const wakeLockRef = useRef<any>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   // Reset state when component opens for a new trip
   useEffect(() => {
@@ -75,6 +78,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       setPhase('planning');
       setPlanningSubPhase('input');
       setLiveSessionId(null);
+      setKeepScreenOn(false);
       isRecalculatingRef.current = false;
       if (destinationMarkerRef.current) {
         destinationMarkerRef.current.setMap(null);
@@ -84,6 +88,79 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         setPhase('viewing');
     }
   }, [tripToView]);
+
+  // Wake Lock Toggle Logic (Synchronous for Video Fallback)
+  const handleToggleWakeLock = async () => {
+      const nextState = !keepScreenOn;
+      setKeepScreenOn(nextState);
+
+      if (nextState) {
+          // 1. Try Video Fallback IMMEDIATELY (needs user gesture)
+          if (videoRef.current) {
+              try {
+                  // Ensure it plays even if already loaded
+                  await videoRef.current.play();
+              } catch (e) {
+                  console.warn("Wake Lock Video Fallback failed:", e);
+              }
+          }
+      } else {
+          // 2. Stop everything
+          if (videoRef.current) {
+              videoRef.current.pause();
+          }
+          if (wakeLockRef.current) {
+              wakeLockRef.current.release().catch((e: any) => console.log(e));
+              wakeLockRef.current = null;
+          }
+      }
+  };
+
+  // Wake Lock Native API & Lifecycle Management
+  useEffect(() => {
+    const manageLocks = async () => {
+        if (keepScreenOn && phase === 'navigating') {
+            // Try Native API (Progressive Enhancement)
+            if ('wakeLock' in navigator && !wakeLockRef.current) {
+                try {
+                    wakeLockRef.current = await navigator.wakeLock.request('screen');
+                    wakeLockRef.current.addEventListener('release', () => {
+                        wakeLockRef.current = null;
+                    });
+                } catch (err) {
+                    console.warn("Native Wake Lock disallowed (using video fallback):", err);
+                }
+            }
+            // Ensure video is playing (if native failed or just as backup)
+            if (videoRef.current && videoRef.current.paused) {
+                 videoRef.current.play().catch(() => {});
+            }
+        } else {
+            // Cleanup handled in toggle, but good to ensure on unmount/phase change
+            if (wakeLockRef.current) {
+                wakeLockRef.current.release().catch(() => {});
+                wakeLockRef.current = null;
+            }
+            if (videoRef.current && !videoRef.current.paused) {
+                videoRef.current.pause();
+            }
+        }
+    };
+
+    manageLocks();
+
+    const handleVisibilityChange = () => {
+       if (document.visibilityState === 'visible') {
+           manageLocks(); // Re-acquire locks when coming back to app
+       }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+        if (wakeLockRef.current) wakeLockRef.current.release().catch(() => {});
+    };
+  }, [keepScreenOn, phase]);
 
 
   const initMap = useCallback((center: { lat: number; lng: number }) => {
@@ -113,23 +190,15 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         // Allow user to drag map and stop following
         mapInstance.current.addListener('dragstart', () => {
             // Only stop following if we are actually navigating
-            // We can't access 'phase' state reliably inside this closure without a ref, 
-            // but isFollowingUser is mainly relevant for navigation anyway.
             setIsFollowingUser(false);
         });
         
         // Add click listener for selecting destination
         mapInstance.current.addListener('click', (e: any) => {
-             // We need to check the current phase. Since this closure is created once,
-             // we rely on the parent component's logic or checking if the map element exists.
-             // However, to keep it simple, we can check if the route is calculated or not.
-             // Ideally we want: phase === 'planning' && planningSubPhase === 'input'
-             // Since we can't easily access the fresh state here without re-binding, 
-             // let's assume if there's no directions currently displayed, we are in input mode.
-             
-             // Accessing the DOM input to see if it's disabled or check our phase
-             const isNavigating = document.querySelector('.is-navigating');
-             if (isNavigating) return;
+             // Check if we are in navigation phase by checking for a class or state (can't access state directly in closure easily without ref, but element check works)
+             // Better: Check if the UI container for navigation exists
+             const navUI = document.getElementById('navigation-ui-container');
+             if (navUI) return; // In navigation, clicks shouldn't change destination
 
              // Prevent default info window for POIs
              if (e.placeId) {
@@ -708,7 +777,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   );
 
   const renderNavigationUI = () => (
-     <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
+     <div id="navigation-ui-container" className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
         <div className="relative max-w-lg mx-auto">
             {/* Re-center Button: Always visible */}
             <button
@@ -730,8 +799,21 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
                 <MyLocationIcon className="w-6 h-6" />
             </button>
 
-             <button type="button" onClick={() => setIsCopilotModalOpen(true)} className="absolute -top-14 left-0 bg-[#141414]/80 p-2 rounded-full border border-[#444] shadow-lg text-[#FF6B00]">
+            <button type="button" onClick={() => setIsCopilotModalOpen(true)} className="absolute -top-14 left-0 bg-[#141414]/80 p-2 rounded-full border border-[#444] shadow-lg text-[#FF6B00]" title="Modo Co-piloto">
                 <CopilotIcon className="w-6 h-6" />
+            </button>
+            
+            <button 
+                type="button" 
+                onClick={handleToggleWakeLock} 
+                className={`absolute -top-14 left-14 p-2 rounded-full border shadow-lg transition-colors ${
+                    keepScreenOn 
+                    ? 'bg-[#FF6B00] text-black border-[#FF6B00]' 
+                    : 'bg-[#141414]/80 text-[#FF6B00] border-[#444]'
+                }`}
+                title={keepScreenOn ? "Tela sempre acesa" : "Manter tela acesa"}
+            >
+                <LightbulbIcon className="w-6 h-6" />
             </button>
         </div>
       <div className="bg-[#141414]/90 p-4 rounded-lg shadow-lg text-center border border-[#444] max-w-lg mx-auto">
@@ -757,6 +839,16 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
 
   return (
     <div className={`fixed inset-0 bg-[#0A0A0A] z-40 flex flex-col ${phase === 'navigating' || phase === 'viewing' ? 'is-navigating' : ''}`}>
+      {/* Fallback video for Wake Lock: Provided directly in src to be ready for sync play */}
+      <video 
+        ref={videoRef} 
+        className="hidden" 
+        playsInline 
+        muted 
+        loop 
+        src="data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAALZXBkbQAAAAAABnRyYWsAAABcdGtoZAAAAA+47AAACAAAAAAABAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAAAAHN0ZHQAAAAAAAAAAAAAdHRzAAAAAQAAAAEAAAAAAChzdHNjAAAAAAAAAAIAAAABAAAAAQAAAAEAAAACAAAAAQAAACAAAAABAAAAbHN0c3oAAAAAAAAAEwAAAAEAAAAUc3RjbwAAAAAAAAABAAAALaaaYXYcC"
+      />
+      
       <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-center">
         {/* Hide back button during navigation to prevent accidental exit */}
         {phase !== 'navigating' && (
