@@ -50,6 +50,10 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const directionsService = useRef<any>(null);
   const directionsRenderer = useRef<any>(null);
   const userPositionMarker = useRef<any>(null);
+  
+  // Refs for map interaction
+  const destinationMarkerRef = useRef<any>(null);
+
   // Refs for viewing mode
   const pathPolylineRef = useRef<any>(null);
   const startMarkerRef = useRef<any>(null);
@@ -72,6 +76,10 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       setPlanningSubPhase('input');
       setLiveSessionId(null);
       isRecalculatingRef.current = false;
+      if (destinationMarkerRef.current) {
+        destinationMarkerRef.current.setMap(null);
+        destinationMarkerRef.current = null;
+      }
     } else {
         setPhase('viewing');
     }
@@ -85,6 +93,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
             zoom: 15,
             disableDefaultUI: true,
             backgroundColor: '#0A0A0A',
+            clickableIcons: true, // Ensure POIs are clickable
             styles: [
                 { elementType: "geometry", stylers: [{ color: "#242f3e" }] },
                 { elementType: "labels.text.stroke", stylers: [{ color: "#242f3e" }] },
@@ -102,9 +111,66 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         trafficLayer.setMap(mapInstance.current);
 
         // Allow user to drag map and stop following
-        // IMPORTANT: We remove the phase check here because mapInstance is created once (closure stale state)
         mapInstance.current.addListener('dragstart', () => {
+            // Only stop following if we are actually navigating
+            // We can't access 'phase' state reliably inside this closure without a ref, 
+            // but isFollowingUser is mainly relevant for navigation anyway.
             setIsFollowingUser(false);
+        });
+        
+        // Add click listener for selecting destination
+        mapInstance.current.addListener('click', (e: any) => {
+             // We need to check the current phase. Since this closure is created once,
+             // we rely on the parent component's logic or checking if the map element exists.
+             // However, to keep it simple, we can check if the route is calculated or not.
+             // Ideally we want: phase === 'planning' && planningSubPhase === 'input'
+             // Since we can't easily access the fresh state here without re-binding, 
+             // let's assume if there's no directions currently displayed, we are in input mode.
+             
+             // Accessing the DOM input to see if it's disabled or check our phase
+             const isNavigating = document.querySelector('.is-navigating');
+             if (isNavigating) return;
+
+             // Prevent default info window for POIs
+             if (e.placeId) {
+                 e.stop();
+             }
+
+             const geocoder = new window.google.maps.Geocoder();
+             const request = e.placeId ? { placeId: e.placeId } : { location: e.latLng };
+
+             geocoder.geocode(request, (results: any, status: string) => {
+                 if (status === 'OK' && results[0]) {
+                     const address = results[0].formatted_address;
+                     const location = results[0].geometry.location;
+                     
+                     // Update State
+                     setDestination(address);
+                     setError(null);
+
+                     // Update Marker
+                     if (destinationMarkerRef.current) {
+                         destinationMarkerRef.current.setMap(null);
+                     }
+                     
+                     destinationMarkerRef.current = new window.google.maps.Marker({
+                         position: location,
+                         map: mapInstance.current,
+                         animation: window.google.maps.Animation.DROP,
+                         icon: {
+                             path: window.google.maps.SymbolPath.CIRCLE,
+                             scale: 8,
+                             fillColor: '#FF6B00',
+                             fillOpacity: 1,
+                             strokeColor: '#FFFFFF',
+                             strokeWeight: 2,
+                         }
+                     });
+                     
+                     // Center map slightly offset to leave room for the bottom UI
+                     mapInstance.current.panTo(location);
+                 }
+             });
         });
 
         directionsService.current = new window.google.maps.DirectionsService();
@@ -120,15 +186,39 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
 
         setMapStatus('ready');
     }
-  }, [phase, tripToView]);
+  }, [tripToView]);
 
   const setupAutocomplete = useCallback(() => {
     if (mapStatus === 'ready' && destinationInputRef.current) {
         const autocomplete = new window.google.maps.places.Autocomplete(destinationInputRef.current);
         autocomplete.addListener('place_changed', () => {
             const place = autocomplete.getPlace();
-            setDestination(place?.formatted_address || place?.name || '');
-            setError(null);
+            if (place.geometry && place.geometry.location) {
+                setDestination(place?.formatted_address || place?.name || '');
+                setError(null);
+                
+                // Update marker to match autocomplete
+                if (destinationMarkerRef.current) {
+                    destinationMarkerRef.current.setMap(null);
+                }
+                destinationMarkerRef.current = new window.google.maps.Marker({
+                         position: place.geometry.location,
+                         map: mapInstance.current,
+                         icon: {
+                             path: window.google.maps.SymbolPath.CIRCLE,
+                             scale: 8,
+                             fillColor: '#FF6B00',
+                             fillOpacity: 1,
+                             strokeColor: '#FFFFFF',
+                             strokeWeight: 2,
+                         }
+                 });
+                 mapInstance.current.panTo(place.geometry.location);
+                 mapInstance.current.setZoom(15);
+
+            } else {
+                 setDestination(place?.name || '');
+            }
         });
     }
   }, [mapStatus]);
@@ -166,6 +256,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       if (pathPolylineRef.current) pathPolylineRef.current.setMap(null);
       if (startMarkerRef.current) startMarkerRef.current.setMap(null);
       if (endMarkerRef.current) endMarkerRef.current.setMap(null);
+      if (destinationMarkerRef.current) destinationMarkerRef.current.setMap(null); // Clear planning marker
 
       // 1. Priority: Render the actual traveled path (Recorded GPS points)
       if (tripToView.traveledPath && tripToView.traveledPath.length > 0) {
@@ -274,6 +365,12 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
               setTripSummary({ distance: leg.distance.text, duration: leg.duration.text });
               setPlanningSubPhase('review');
               setRouteStatus('idle');
+              
+              // Remove the planning marker as the route now shows the destination
+              if (destinationMarkerRef.current) {
+                  destinationMarkerRef.current.setMap(null);
+              }
+
             } else {
               setError('Não foi possível encontrar uma rota para o destino informado.');
               setRoute(null);
@@ -582,7 +679,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
                   type="text"
                   value={destination}
                   onChange={(e) => { setDestination(e.target.value); setError(null); }}
-                  placeholder="Para onde vamos?"
+                  placeholder="Busque ou clique no mapa"
                   disabled={mapStatus !== 'ready'}
                   className="w-full py-3 text-lg text-center bg-[#2a2a2a] text-[#CFCFCF]"
                 />
