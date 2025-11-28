@@ -50,6 +50,11 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const directionsService = useRef<any>(null);
   const directionsRenderer = useRef<any>(null);
   const userPositionMarker = useRef<any>(null);
+  // Refs for viewing mode
+  const pathPolylineRef = useRef<any>(null);
+  const startMarkerRef = useRef<any>(null);
+  const endMarkerRef = useRef<any>(null);
+
   const positionWatcher = useRef<number | null>(null);
   const lastPositionRef = useRef<any>(null);
   const traveledDistanceRef = useRef(0);
@@ -67,6 +72,8 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       setPlanningSubPhase('input');
       setLiveSessionId(null);
       isRecalculatingRef.current = false;
+    } else {
+        setPhase('viewing');
     }
   }, [tripToView]);
 
@@ -85,7 +92,8 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
                 { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
                 { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
                 { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
-                { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#FF6B00" }] },
+                // Darkened highway color to make Orange route pop
+                { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#2c3440" }] }, 
                 { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
             ],
         });
@@ -93,19 +101,27 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         const trafficLayer = new window.google.maps.TrafficLayer();
         trafficLayer.setMap(mapInstance.current);
 
+        // Allow user to drag map and stop following
         mapInstance.current.addListener('dragstart', () => {
-            if (phase === 'navigating') setIsFollowingUser(false);
+            if (phase === 'navigating') {
+                setIsFollowingUser(false);
+            }
         });
 
         directionsService.current = new window.google.maps.DirectionsService();
         directionsRenderer.current = new window.google.maps.DirectionsRenderer({
-            polylineOptions: { strokeColor: '#FFEB3B', strokeWeight: 6, strokeOpacity: 0.9 },
+            polylineOptions: { strokeColor: '#FF6B00', strokeWeight: 6, strokeOpacity: 1.0 },
             suppressMarkers: true,
         });
-        directionsRenderer.current.setMap(mapInstance.current);
+        
+        // Only attach directions renderer if we are NOT viewing a completed history event
+        if (!tripToView) {
+            directionsRenderer.current.setMap(mapInstance.current);
+        }
+
         setMapStatus('ready');
     }
-  }, []);
+  }, [phase, tripToView]);
 
   const setupAutocomplete = useCallback(() => {
     if (mapStatus === 'ready' && destinationInputRef.current) {
@@ -143,29 +159,76 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
     setupAutocomplete();
   }, [setupAutocomplete]);
 
+  // Logic for viewing a completed trip history
   useEffect(() => {
     if (mapStatus === 'ready' && phase === 'viewing' && tripToView && tripToView.type === 'route') {
-      if (tripToView.traveledPath && tripToView.traveledPath.length > 1) {
-        const polyline = new window.google.maps.Polyline({
+      // Clear any previous renderers
+      if (directionsRenderer.current) directionsRenderer.current.setMap(null);
+      if (pathPolylineRef.current) pathPolylineRef.current.setMap(null);
+      if (startMarkerRef.current) startMarkerRef.current.setMap(null);
+      if (endMarkerRef.current) endMarkerRef.current.setMap(null);
+
+      // 1. Priority: Render the actual traveled path (Recorded GPS points)
+      if (tripToView.traveledPath && tripToView.traveledPath.length > 0) {
+        
+        // Draw the path using Polyline (Actual GPS Trace)
+        pathPolylineRef.current = new window.google.maps.Polyline({
           path: tripToView.traveledPath,
           geodesic: true,
-          strokeColor: '#FFEB3B',
-          strokeOpacity: 0.9,
+          strokeColor: '#FF6B00', // Orange for actual path
+          strokeOpacity: 1.0,
           strokeWeight: 6,
         });
-        polyline.setMap(mapInstance.current);
+        pathPolylineRef.current.setMap(mapInstance.current);
 
+        // Add Start Marker
+        const startPoint = tripToView.traveledPath[0];
+        startMarkerRef.current = new window.google.maps.Marker({
+            position: startPoint,
+            map: mapInstance.current,
+            icon: {
+                path: window.google.maps.SymbolPath.CIRCLE,
+                scale: 7,
+                fillColor: '#4ADE80', // Green
+                fillOpacity: 1,
+                strokeWeight: 2,
+                strokeColor: '#ffffff',
+            },
+            title: "Início"
+        });
+
+        // Add End Marker
+        const endPoint = tripToView.traveledPath[tripToView.traveledPath.length - 1];
+        endMarkerRef.current = new window.google.maps.Marker({
+            position: endPoint,
+            map: mapInstance.current,
+            icon: {
+                path: 'M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z M4 22v-7', // Flag
+                scale: 1.5,
+                fillColor: '#EF4444', // Red
+                fillOpacity: 1,
+                strokeWeight: 2,
+                strokeColor: '#ffffff',
+                anchor: new window.google.maps.Point(4, 22),
+            },
+            title: "Chegada"
+        });
+
+        // Fit bounds to the actual path
         const bounds = new window.google.maps.LatLngBounds();
         tripToView.traveledPath.forEach(point => bounds.extend(point));
         mapInstance.current.fitBounds(bounds);
 
         if (tripToView.distanciaPercorrida) {
-          setTripSummary({ distance: `${tripToView.distanciaPercorrida.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km`, duration: 'Percurso Salvo' });
+          setTripSummary({ 
+              distance: `${tripToView.distanciaPercorrida.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km`, 
+              duration: 'Percurso Realizado' 
+          });
         }
 
       } else if (tripToView.origin && tripToView.destination) {
-        // Fallback for old routes without traveledPath
-        // Use coordinates if available in the saved objects, otherwise might fail if it's not proper geocodable string
+        // Fallback for old data: Render theoretical route
+        directionsRenderer.current.setMap(mapInstance.current); 
         const requestOrigin = tripToView.origin.location ? tripToView.origin.location : tripToView.origin;
         const requestDestination = tripToView.destination.location ? tripToView.destination.location : tripToView.destination;
 
@@ -251,7 +314,6 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         const leg = route.routes[0].legs[0];
         const routeDataForCopilot = serializeRouteData(leg);
 
-        // Fix: Use db.collection().add() (compat/v8 style)
         const sessionRef = await db.collection('live_sessions').add({
             driverId: auth.currentUser.uid,
             createdAt: new Date().toISOString(),
@@ -259,6 +321,21 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
             currentStepIndex: 0,
         });
         setLiveSessionId(sessionRef.id);
+        
+        // Reset tracking data
+        traveledDistanceRef.current = 0;
+        traveledPathRef.current = [];
+        
+        // Push start position immediately
+        if (navigator.geolocation) {
+             navigator.geolocation.getCurrentPosition(p => {
+                 const startPos = { lat: p.coords.latitude, lng: p.coords.longitude };
+                 traveledPathRef.current.push(startPos);
+                 lastPositionRef.current = startPos;
+             });
+        }
+        
+        setIsFollowingUser(true);
         setPhase('navigating');
     } catch (e) {
         console.error("Failed to create live session:", e);
@@ -270,7 +347,6 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   useEffect(() => {
     return () => {
       if (liveSessionId) {
-        // Fix: Use db.collection().doc().delete() (compat/v8 style)
         db.collection('live_sessions').doc(liveSessionId).delete().catch(err => {
             console.warn("Could not delete live session on cleanup (likely permission issue or already deleted):", err);
         });
@@ -283,9 +359,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
       
       isRecalculatingRef.current = true;
       setRouteStatus('recalculating');
-      console.log("Recalculando rota...");
 
-      // Use the original destination from the current route
       const currentRouteLeg = route.routes[0].legs[0];
       const destLocation = currentRouteLeg.end_location;
 
@@ -298,13 +372,11 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
                   setRoute(result);
                   setTripSummary({ distance: leg.distance.text, duration: leg.duration.text });
                   
-                  // Update live session with new route data
                   if (liveSessionId) {
                       const newRouteData = serializeRouteData(leg);
-                      // Fix: Use db.collection().doc().update() (compat/v8 style)
                       db.collection('live_sessions').doc(liveSessionId).update({
                           routeData: newRouteData,
-                          currentStepIndex: 0 // Reset step index for new route
+                          currentStepIndex: 0
                       }).catch(err => console.error("Error updating route for copilot", err));
                   }
               } else {
@@ -323,12 +395,10 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         return;
     }
     
-    if (mapInstance.current && route) {
-        // Only fit bounds initially, not on every update unless tracking is on, handled below
-        if (!userPositionMarker.current) {
-             const routeBounds = route.routes[0].bounds;
-             mapInstance.current.fitBounds(routeBounds);
-        }
+    // Set initial bounds for navigation
+    if (mapInstance.current && route && !userPositionMarker.current) {
+          const routeBounds = route.routes[0].bounds;
+          mapInstance.current.fitBounds(routeBounds);
     }
     
     let currentStepIndex = 0;
@@ -338,15 +408,22 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
 
     positionWatcher.current = navigator.geolocation.watchPosition(async (position) => {
         const newPosition = { lat: position.coords.latitude, lng: position.coords.longitude };
+        
+        // Add to traveled path for historical visualization
         traveledPathRef.current.push(newPosition);
 
         const heading = position.coords.heading ?? (lastPositionRef.current ? window.google.maps.geometry.spherical.computeHeading(new window.google.maps.LatLng(lastPositionRef.current), new window.google.maps.LatLng(newPosition)) : 0);
         
+        // Calculate REAL distance traveled using GPS points
         if (lastPositionRef.current) {
-            traveledDistanceRef.current += window.google.maps.geometry.spherical.computeDistanceBetween(
+            const segmentDistance = window.google.maps.geometry.spherical.computeDistanceBetween(
                 new window.google.maps.LatLng(lastPositionRef.current),
                 new window.google.maps.LatLng(newPosition)
             );
+            // Ignore noise (jumps less than 2 meters) to avoid adding distance when stopped
+            if (segmentDistance > 2) {
+                traveledDistanceRef.current += segmentDistance;
+            }
         }
         
         // --- Off-route Detection and Recalculation ---
@@ -356,26 +433,21 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
             });
             
             const currentLatLng = new window.google.maps.LatLng(newPosition.lat, newPosition.lng);
-            // isLocationOnEdge(point, poly, toleranceDegrees). 10e-5 degrees is approx 10-12 meters.
-            // Using 2e-4 (~20-25 meters) tolerance to avoid jitter recalculation.
             const isOnPath = window.google.maps.geometry.poly.isLocationOnEdge(currentLatLng, pathPolyline, 2e-4);
             
             if (!isOnPath) {
                 recalculateRoute(newPosition);
             }
         }
-        // ---------------------------------------------
 
-        // Find current step (only if we didn't just trigger a recalculation)
+        // Find current step
         if (route && !isRecalculatingRef.current) {
             const steps = route.routes[0].legs[0].steps;
             let closestStepIndex = currentStepIndex;
             let smallestDistance = Infinity;
 
             for (let i = 0; i < steps.length; i++) {
-                // Optimization: Only check current and next few steps to avoid loop entire array
-                // For simplicity, checking all for now or check bounds
-                for (let j = 0; j < steps[i].path.length; j += 5) { // Check every 5th point for perf
+                for (let j = 0; j < steps[i].path.length; j += 5) {
                     const distance = window.google.maps.geometry.spherical.computeDistanceBetween(
                         new window.google.maps.LatLng(newPosition),
                         steps[i].path[j]
@@ -394,7 +466,6 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         }
 
         if (liveSessionId) {
-            // Fix: Use db.collection().doc().update() (compat/v8 style)
             await db.collection('live_sessions').doc(liveSessionId).update({
                 position: newPosition,
                 heading,
@@ -430,7 +501,11 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         }
         lastPositionRef.current = newPosition;
 
-    }, (err) => console.error("Error watching position:", err), { enableHighAccuracy: true });
+    }, (err) => console.error("Error watching position:", err), { 
+        enableHighAccuracy: true, 
+        maximumAge: 0,
+        timeout: 10000 
+    });
 
     return () => {
         if (positionWatcher.current !== null) navigator.geolocation.clearWatch(positionWatcher.current);
@@ -439,8 +514,31 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
 
 
   const finishRoute = () => {
+    // Force capture of the final position if it differs from the last recorded one
+    if (navigator.geolocation) {
+         navigator.geolocation.getCurrentPosition(p => {
+             const finalPos = { lat: p.coords.latitude, lng: p.coords.longitude };
+             
+             // Check distance from last point to avoid duplicates/noise
+             let shouldPush = true;
+             if (lastPositionRef.current) {
+                 const dist = window.google.maps.geometry.spherical.computeDistanceBetween(
+                    new window.google.maps.LatLng(lastPositionRef.current),
+                    new window.google.maps.LatLng(finalPos)
+                 );
+                 if (dist < 2) shouldPush = false;
+                 else traveledDistanceRef.current += dist;
+             }
+
+             if (shouldPush) {
+                 traveledPathRef.current.push(finalPos);
+             }
+         }, 
+         (err) => console.log("Final position capture failed", err),
+         { enableHighAccuracy: true, timeout: 2000 });
+    }
+
     if (liveSessionId) {
-        // Fix: Use db.collection().doc().delete() (compat/v8 style)
         db.collection('live_sessions').doc(liveSessionId).delete().catch(err => console.warn("Delete session failed:", err));
         setLiveSessionId(null);
     }
@@ -452,7 +550,9 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
         const distanceInKm = traveledDistanceRef.current / 1000;
         const leg = route.routes[0].legs[0];
         
-        // Use plain objects for saving to Firestore
+        // Clone array to prevent reference issues after unmount
+        const finalPath = [...traveledPathRef.current];
+
         onAddCheckpoint(distanceInKm, new Date().toISOString(), {
             origin: {
                 address: leg.start_address,
@@ -462,7 +562,7 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
                 address: leg.end_address,
                 location: { lat: leg.end_location.lat(), lng: leg.end_location.lng() }
             },
-            traveledPath: traveledPathRef.current,
+            traveledPath: finalPath,
         });
     }
     setIsConfirmModalOpen(false);
@@ -514,11 +614,26 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   const renderNavigationUI = () => (
      <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3 z-10">
         <div className="relative max-w-lg mx-auto">
-            {!isFollowingUser && (
-                <button type="button" onClick={() => setIsFollowingUser(true)} className="absolute -top-14 right-0 bg-[#141414]/80 p-2 rounded-full border border-[#444] shadow-lg text-[#FF6B00]">
-                    <MyLocationIcon className="w-6 h-6" />
-                </button>
-            )}
+            {/* Re-center Button: Always visible */}
+            <button
+                type="button"
+                onClick={() => {
+                    setIsFollowingUser(true);
+                    if (lastPositionRef.current && mapInstance.current) {
+                        mapInstance.current.panTo(lastPositionRef.current);
+                        mapInstance.current.setZoom(18);
+                    }
+                }}
+                className={`absolute -top-16 right-0 p-3 rounded-full shadow-lg z-50 transition-all duration-300 ${
+                    isFollowingUser 
+                    ? 'bg-[#FF6B00] text-black border border-[#FF6B00]' 
+                    : 'bg-[#141414]/90 text-[#FF6B00] border border-[#FF6B00] animate-bounce hover:bg-[#2a2a2a]'
+                }`}
+                title="Recentralizar na minha localização"
+            >
+                <MyLocationIcon className="w-6 h-6" />
+            </button>
+
              <button type="button" onClick={() => setIsCopilotModalOpen(true)} className="absolute -top-14 left-0 bg-[#141414]/80 p-2 rounded-full border border-[#444] shadow-lg text-[#FF6B00]">
                 <CopilotIcon className="w-6 h-6" />
             </button>
@@ -547,10 +662,13 @@ const TripView: React.FC<RouteViewProps> = ({ cycle, onEndTrip, onAddCheckpoint,
   return (
     <div className={`fixed inset-0 bg-[#0A0A0A] z-40 flex flex-col ${phase === 'navigating' || phase === 'viewing' ? 'is-navigating' : ''}`}>
       <div className="absolute top-0 left-0 right-0 p-4 z-20 flex justify-between items-center">
-        <button type="button" onClick={onEndTrip} className="bg-[#141414]/80 p-2 rounded-lg border border-[#444] shadow-lg text-[#FF6B00] hover:text-[#ff852b] transition-colors flex items-center text-sm">
-          <ChevronLeftIcon className="w-5 h-5 mr-1" />
-          {phase === 'navigating' ? 'Sair da Navegação' : 'Voltar'}
-        </button>
+        {/* Hide back button during navigation to prevent accidental exit */}
+        {phase !== 'navigating' && (
+            <button type="button" onClick={onEndTrip} className="bg-[#141414]/80 p-2 rounded-lg border border-[#444] shadow-lg text-[#FF6B00] hover:text-[#ff852b] transition-colors flex items-center text-sm">
+              <ChevronLeftIcon className="w-5 h-5 mr-1" />
+              Voltar
+            </button>
+        )}
       </div>
 
       <div ref={mapRef} className="absolute inset-0 z-0" />

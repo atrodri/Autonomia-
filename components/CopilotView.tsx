@@ -39,7 +39,8 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
             { featureType: "road", elementType: "geometry", stylers: [{ color: "#38414e" }] },
             { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#212a37" }] },
             { featureType: "road", elementType: "labels.text.fill", stylers: [{ color: "#9ca5b3" }] },
-            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#FF6B00" }] },
+            // Darker highway to contrast with Orange Route
+            { featureType: "road.highway", elementType: "geometry", stylers: [{ color: "#2c3440" }] },
             { featureType: "water", elementType: "geometry", stylers: [{ color: "#17263c" }] },
           ],
         });
@@ -48,7 +49,7 @@ const CopilotView: React.FC<CopilotViewProps> = ({ sessionId }) => {
         trafficLayer.setMap(mapInstance.current);
 
         directionsRenderer.current = new window.google.maps.DirectionsRenderer({
-            polylineOptions: { strokeColor: '#FFEB3B', strokeWeight: 6, strokeOpacity: 0.9 },
+            polylineOptions: { strokeColor: '#FF6B00', strokeWeight: 6, strokeOpacity: 1.0 },
             suppressMarkers: true,
         });
         directionsRenderer.current.setMap(mapInstance.current);
